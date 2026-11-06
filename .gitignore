@@ -5,3 +5,6 @@ __pycache__/
 .env
 data/
 comparacao.md
+tools/
+runs/
+.micromamba/
