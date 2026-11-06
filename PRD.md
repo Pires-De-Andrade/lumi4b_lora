@@ -1,24 +1,28 @@
-# PRD: Fine-tuning do Lumi-4B com LoRA, DoRA e QLoRA
+# PRD: SFT do Lumi-4B com LoRA ou DoRA para adicionar raciocínio
 
-Nov 6, 2026 · @gustavo
+Nov 6, 2026 · @gustavobarrosss
 
 ## Resumo e objetivo
 
-Treinar adaptadores LoRA, DoRA e QLoRA sobre o `ceia-br/lumi-4b` v0.2 para superar o Overall de referência (52,99) e o IFEval PT (35,33), comparando os três métodos na mesma avaliação pareada.
+Treinar por SFT um adaptador LoRA ou DoRA sobre o `ceia-br/lumi-4b` v0.2 para que `enable_thinking=True` produza raciocínio em português que melhore as respostas, sem piorar o modo sem raciocínio.
 
-A entrega final é um adaptador vencedor, sua versão fundida em BF16 e um relatório reproduzível. Cada +6 pontos em uma nota vale +1 no Overall, porque ele é a média simples de 6 notas.
+Hoje o cartão manda manter esse modo desligado, porque ele não foi treinado nem validado nesta versão. A entrega final é um adaptador vencedor, sua versão fundida em BF16 e um relatório reproduzível.
+
+A **Nota de raciocínio** é a média simples de GSM8K-PT, MMLU-ProX PT, ENEM, BLUEX e OAB. Todas as referências abaixo são medidas na fase 0, no mesmo harness.
 
 | Métrica | Referência | Meta mínima | Meta alvo |
 | --- | --- | --- | --- |
-| Overall | 52,99 no cartão | Acima da baseline medida, com IC 95% da diferença acima de 0 | Baseline medida + 2,0 (cerca de 55,0 pelo cartão) |
-| IFEval PT estrito | 35,33 no cartão | ≥ 39,63 | ≥ 47,29 |
-| MMLU PT, Global MMLU PT, MMMLU PT e INCLUDE PT | 47,63 a 61,73 | Queda média de até 1 ponto, sem queda significativa em nenhuma nota | Ganho em ao menos uma nota |
+| Nota de raciocínio, com raciocínio | Lumi medido nos dois modos | IC 95% da diferença acima de 0 contra os dois | Lumi sem raciocínio + 5,0 |
+| GSM8K-PT, com raciocínio | Lumi sem raciocínio | + 3,0, com IC 95% acima de 0 | + 10,0 |
+| Respostas que fecham `</think>` e trazem texto depois | Lumi com raciocínio | ≥ 98% | ≥ 99,5% |
+| Traços em português | Lumi com raciocínio | ≥ 90% | ≥ 98% |
+| Overall sem raciocínio | Lumi medido (52,99 no cartão) | Queda de até 1 ponto, sem queda significativa em nenhuma nota | Sem queda |
 
-As metas de IFEval são resultados publicados: 39,63 é o Nemotron 3 Nano 4B e 47,29 é o Gemma 4 E4B, na melhor de 3 rodadas (a média é 46,60). A meta alvo do Overall equivale a levar o IFEval a 47,29 com as outras notas estáveis.
+As metas ficam entre dois precedentes. Nas 4 provas em comum com a Nota (sem MMLU-ProX PT), o Qwen3-4B ganha em média 15,73 pontos ao ligar o raciocínio e o Tucano 3.7B Think fica em -0,15 contra o Instruct. A meta alvo de 5 pontos é cerca de um terço do ganho do Qwen3-4B. No GSM8K-PT, a meta mínima repete o ganho do Tucano (2,89) e a alvo é cerca de um quarto do ganho do Qwen3-4B (37,14).
 
 ## Contexto e evidências
 
-O Lumi-4B é mais fraco em seguir instruções, e a hipótese central é que isso melhora com dados de restrições verificáveis, e não com mais texto em português.
+O Lumi-4B já tem a infraestrutura do modo de raciocínio, mas ninguém mediu o que ele faz com ela. A hipótese central é que um adaptador treinado com traços em português consegue ativar esse modo de forma útil.
 
 | Item | Valor |
 | --- | --- |
@@ -26,15 +30,18 @@ O Lumi-4B é mais fraco em seguir instruções, e a hipótese central é que iss
 | Classe | `NemotronHForCausalLM`, BF16, 7,95 GB |
 | Camadas | 42: 21 Mamba, 17 MLP e 4 de atenção (índices 12, 17, 24 e 32) |
 | Vocabulário e cabeça | 131.072 tokens, sem pesos amarrados: embeddings e `lm_head` somam cerca de 20% dos parâmetros |
+| Tokens de raciocínio | `<think>` (12) e `</think>` (13) já existem no vocabulário e têm `special=False`, então `skip_special_tokens=True` não os remove |
 | Contexto máximo | 262.144 tokens |
 | Template | `enable_thinking` ligado por padrão, tool calls em XML |
-| Raciocínio | O cartão manda mantê-lo desligado nesta versão |
-| Treino | Pré-treino contínuo de 50B tokens, com destilação da Nemotron 3.5 Lightning, seguido de SFT |
-| Dados de treino | Listados no cartão; os conjuntos do CEIA não têm link público |
-| Modelo-base | `nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16` |
-| Licença | Não documentada no cartão |
+| Prompt de geração | Com raciocínio termina em `<think>\n`; sem raciocínio termina em `<think></think>` |
+| Histórico | `truncate_history_thinking` remove o raciocínio dos turnos anteriores ao último pedido do usuário |
+| Parada | `config.json` e `generation_config.json` usam `eos_token_id=2` (`</s>`), mas o template fecha o turno com `<\|im_end\|>` (11) |
+| Posição do cartão | "Thinking must remain disabled for this release"; o suporte está previsto para uma versão futura |
+| Treino | Pré-treino contínuo de 50B tokens, com destilação da Nemotron 3.5 Lightning, seguido de SFT, sem RL nem RLVR |
+| Modelo-base | `nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16`, com raciocínio ligado por padrão e uso declarado em inglês e código |
+| Licença | O Lumi tem `license: TODO` no cartão; a base segue a NVIDIA Nemotron Open Model License |
 
-O cartão atual traz as notas só em gráfico, com 6 provas: em relação à v0.1, entraram MMMLU PT e INCLUDE PT, e saiu MMLU-ProX PT. A tabela abaixo usa os valores das barras de `lumi_versoes.svg`. Os valores da v0.1 batem com o cartão antigo nas provas em comum.
+O modo sem raciocínio é a referência publicada. O cartão atual traz as notas só em gráfico, com 6 provas, e a tabela abaixo usa os valores das barras de `lumi_versoes.svg`. O cartão não publica nota com raciocínio. O MMLU-ProX PT saiu na v0.2; a v0.1 tinha 36,28 nessa prova, com harness não documentado.
 
 | Prova | Nemotron 3 Nano 4B | Lumi v0.1 | Lumi v0.2 |
 | --- | --- | --- | --- |
@@ -46,101 +53,103 @@ O cartão atual traz as notas só em gráfico, com 6 provas: em relação à v0.
 | IFEval PT estrito | 40,93 | 33,83 | 35,33 |
 | Overall | 48,67 | 50,91 | 52,99 |
 
-A v0.1 tirou 35,7 no IFEval PT em teste independente, que não cobre a v0.2. O Lumi não aparece nos resultados publicados do benchmark, então sua taxa por classe ainda é desconhecida. A tabela abaixo mostra a taxa de acerto de três modelos próximos, em % (rodada `eval_open_2`).
+O artigo do Tucano 2 dá as duas referências mais próximas, com resultados bem diferentes. No Qwen3-4B, o mesmo modelo muda de modo. No Tucano, são dois modelos pós-treinados a partir da mesma base. O Think usou 100% do subset `reasoning`, com SFT e APO.
 
-| Classe de instrução | Nemotron 3 Nano 4B | Qwen3-4B | Tucano2 3.7B Instruct |
-| --- | --- | --- | --- |
-| Mesóclise | 1,6 | 1,6 | 3,2 |
-| Crase | 16,4 | 49,2 | 59,0 |
-| Contagem de cedilha | 17,9 | 5,4 | 3,6 |
-| Uso de "porque" | 18,2 | 6,8 | 9,1 |
-| Sem til | 30,6 | 14,5 | 1,6 |
-| Tratamento por vós | 43,2 | 79,5 | 65,9 |
-| Sem vírgula | 53,6 | 62,5 | 10,7 |
-| JSON | 81,5 | 74,1 | 18,5 |
+| Prova do artigo | Qwen3-4B sem | Qwen3-4B com | Diferença | Tucano Instruct | Tucano Think | Diferença |
+| --- | --- | --- | --- | --- | --- | --- |
+| GSM8K-PT | 39,88 | 77,02 | +37,14 | 53,81 | 56,70 | +2,89 |
+| BLUEX | 63,28 | 78,30 | +15,02 | 64,53 | 63,00 | -1,53 |
+| ENEM | 72,15 | 85,23 | +13,08 | 72,92 | 71,52 | -1,40 |
+| IFEval-PT | 79,33 | 84,00 | +4,67 | 41,67 | 31,67 | -10,00 |
+| MMLU | 26,93 | 31,53 | +4,60 | 64,64 | 61,18 | -3,46 |
+| OAB | 50,30 | 47,97 | -2,33 | 54,31 | 53,76 | -0,55 |
+| ARC | 43,08 | 39,66 | -3,42 | 60,34 | 55,38 | -4,96 |
+| BELEBELE | 83,67 | 23,00 | -60,67 | 85,22 | 83,56 | -1,66 |
+
+O IFEval-PT do artigo tem 300 amostras e não é o Portuguese-IFEval de 535 prompts usado no cartão. Os autores atribuem o resultado do Think à falta de dados de raciocínio em português, aos traços curtos e ao orçamento de 4.096 tokens. O artigo não explica a queda do Qwen3-4B no BELEBELE, que parece problema de extração ou de limite de tokens, e não perda real; A-05 trata esse risco. No mesmo artigo, o HumanEval cai em média 29 pontos ao ligar o raciocínio.
 
 Três hipóteses guiam o projeto:
 
-- **H1:** o Lumi perdeu disciplina de formato durante o treino em português. Indício: o Nemotron 3 Nano 4B, modelo-base segundo o cartão, tem 40,93 no IFEval PT pelo gráfico do CEIA e 39,63 no repositório do benchmark, acima dos 35,33 do Lumi.
-- **H2:** as seis restrições próprias do português são o maior potencial. Elas aparecem em 47,7% dos prompts, e passar em todas levaria a Nemotron de 39,63 a 67,48, um teto teórico.
-- **H3:** o `gigaverbo-v2-sft` sozinho não resolve o IFEval. O Tucano2 treinou com ele e fez 23,93, enquanto o Qwen3-4B fez 41,87. Em conhecimento e raciocínio, porém, o Tucano2 lidera (56,22 contra 42,33).
-
-O SFT do Lumi já usou dados de seguir instruções, inclusive em português (`Nemotron-SFT-Instruction-Following-Chat` v2 e v3 e `CEIA-Portuguese-Instruction-Following-Chat`), e a nota segue abaixo da base. Por isso, a fase 2 testa a viabilidade antes da geração completa.
+- **H1:** o Lumi herdou parte da capacidade de raciocínio do Nemotron 3 Nano 4B, talvez em inglês. A base foi treinada com traços sintéticos e tem AIME25 78,5 e MATH500 95,4 com raciocínio. A fase 0 mede se essa capacidade sobreviveu.
+- **H2:** com essa herança, o Lumi pode ganhar mais que o Tucano com os mesmos dados. É uma inferência: o Tucano 3.7B vem do `Qwen3-4B-Base`, sem pós-treino, enquanto o Lumi vem de um modelo de chat que já raciocina. O pré-treino contínuo e o SFT do Lumi podem ter apagado essa vantagem, e a fase 2 testa isso antes do treino completo.
+- **H3:** o ganho se concentra em matemática, que soma 82% dos tokens de `reasoning`. Por isso, o relatório separa o GSM8K-PT das provas de conhecimento.
 
 ## Escopo
 
-Este projeto cobre apenas o pós-treino por adaptadores sobre os pesos do Lumi-4B: refino supervisionado (SFT) seguido de otimização de preferência (APO).
+Este projeto cobre apenas um SFT por adaptador sobre os pesos do Lumi-4B, comparando LoRA e DoRA no modo com raciocínio e na preservação do modo sem raciocínio.
 
 **Dentro do escopo**
 
-- Preparar os subsets do GigaVerbo-v2 no formato do Lumi.
-- Gerar um dataset novo de restrições verificáveis em português.
-- Treinar e comparar LoRA, DoRA e QLoRA, com QDoRA como braço opcional.
-- Avaliar todos os finalistas contra o Lumi no mesmo harness.
+- Preparar o subset `reasoning` do GigaVerbo-v2 e uma parcela de exemplos sem raciocínio.
+- Treinar e comparar LoRA e DoRA.
+- Medir o Lumi e os candidatos nos dois modos, no mesmo harness.
 - Entregar o adaptador vencedor, o modelo fundido em BF16 e o relatório.
 
 **Fora do escopo**
 
-- Pré-treino continuado dos pesos completos. Se os adaptadores não atingirem a meta, isso vira outro PRD.
-- Tool calling: não entra no Overall e o subset `function_call` pode exigir conversão de formato.
-- Contexto longo, exportação GGUF e publicação no Hugging Face.
-- Modo de raciocínio: o cartão manda mantê-lo desligado nesta versão.
+- QLoRA e QDoRA: nesta máquina a memória não é limite, e a quantização não promete ganho de qualidade.
+- APO, RL e RLVR. São os próximos passos naturais se o SFT não bastar, e cada um pede outro PRD.
+- Gerar traços novos. Se a fase 2 mostrar que os dados limitam o resultado, isso vira outro PRD.
+- Melhorar o IFEval: aqui ele é só uma trava contra regressão.
+- Raciocínio em conversa com vários turnos: todos os 78.249 exemplos de `reasoning` têm um só turno. O model card registra essa limitação.
+- Pré-treino continuado dos pesos completos, tool calling, contexto longo, exportação GGUF e publicação no Hugging Face.
 
 ## Requisitos de dados
 
-O treino usa três fontes: subsets selecionados do GigaVerbo-v2, um dataset novo de restrições e pares de preferência. Tudo deve ser renderizado pelo template do próprio Lumi, com `enable_thinking=False`.
+O treino usa o subset `reasoning` e uma parcela de exemplos sem raciocínio, todos do GigaVerbo-v2 SFT (Apache-2.0). Os números abaixo foram calculados sobre os arquivos Parquet completos.
 
-| Fonte | Uso | Regra de seleção | Licença |
+| Fonte | Linhas | Tokens | Decisão |
 | --- | --- | --- | --- |
-| [`Polygl0t/gigaverbo-v2-sft`](https://huggingface.co/datasets/Polygl0t/gigaverbo-v2-sft) | SFT | `instruct_score` ≥ 4,0, sem `function_call` e sem `reasoning` | Apache-2.0 |
-| `lumi-constraints-pt` (novo) | SFT e APO | Aprovado por validador e por filtro de qualidade | Definir na fase 2 |
-| [`Polygl0t/gigaverbo-v2-preferences`](https://huggingface.co/datasets/Polygl0t/gigaverbo-v2-preferences) | APO | 10.521 pares de `harmless-no-reasoning` e depois 4.267 de `harmfull-no-reasoning`; os subsets `*-reasoning` ficam de fora | Apache-2.0 |
+| `reasoning`, tipo `math_reasoning` | 66.067 | 28,7 M | Usar com raciocínio |
+| `reasoning`, tipo `reasoning` | 12.182 | 6,1 M | Usar com raciocínio |
+| `general`, `structured`, `system_prompts`, `rewriting`, `summarization`, `math` e `retrieval` | Amostra | Até 25% dos tokens | Usar sem raciocínio, com `instruct_score` ≥ 4,0 |
+| `math_cot` | 63.413 | 27,1 M | Fora: duplica `reasoning` |
+| `chosen` de `gigaverbo-v2-preferences`, subsets `*-reasoning` | 13.649 | 7,6 M | Fora: só 1.502 de 13.627 prompts são novos |
+| `function_call`, `code` e `translation` | | | Fora: não servem a este objetivo |
 
-A mistura inicial do SFT abaixo é uma hipótese de partida, a revisar depois da baseline por classe.
+O que os dados permitem e o que limitam:
 
-| Fonte | Participação nos tokens |
-| --- | --- |
-| `lumi-constraints-pt` | 40% |
-| `math_cot` e `math` | 20% |
-| `structured`, `system_prompts`, `rewriting` e `summarization` | 20% |
-| `general` | 15% |
-| `retrieval` | 5% |
+- **Formato limpo:** todas as linhas têm um único `<think>` fechado, no início da resposta, e `instruct_score` ≥ 4,5. Nenhuma passa de 1.000 tokens, e o p99 é 935.
+- **Traços curtos:** a mediana é de 174 palavras em matemática e 157 nos demais, sem revisão de hipóteses nem checagem da resposta nas amostras lidas.
+- **Pouca variedade:** dos 12.182 exemplos fora de matemática, 4.007 usam os prompts de `harmfull-reasoning`, e as amostras lidas desse grupo são recusas. Sobram cerca de 8.200 exemplos gerais.
+- **`math_cot` não é fonte independente:** 99,4% dos seus prompts únicos estão em `reasoning`. Em 95% das linhas em comum, o traço é idêntico à resposta do `math_cot`, ou seja, é a solução passo a passo dentro das tags.
+- **Traços escritos depois da resposta:** nos dados com pipeline de duas etapas, um modelo gera a resposta e outro escreve o traço. O texto pode justificar a resposta em vez de levar até ela.
+- **Sem gabarito:** os dados são sintéticos, e nada garante que os traços acertem.
+- **Resíduos do pipeline:** cerca de 11% dos traços (8.951) têm expressões como "contexto fornecido" ou "resposta fornecida". Nas amostras lidas, o prompt não tinha contexto nenhum. A conta usa regex e ainda não foi revisada.
 
-### Gerador do `lumi-constraints-pt`
+A mistura inicial abaixo é uma hipótese, testada contra 100% de raciocínio na fase 3. A Unsloth recomenda ao menos 75% de exemplos com raciocínio para manter essa capacidade, mas o texto é genérico para Nemotron, e o único notebook de SFT LoRA citado é o do modelo de 30B. Aqui os 25% restantes também existem para proteger o modo sem raciocínio.
 
-1. **Prompts:** combinar temas inéditos com 1 a 3 instruções do registro `pt:` do [Portuguese-IFEval](https://github.com/ark-aiml-research/Portuguese-IFEval) (Apache-2.0). Guardar tema e instruções em campos separados, porque D-05 compara só o tema. As personas de [`nvidia/Nemotron-Personas-Brazil`](https://huggingface.co/blog/nvidia/nemotron-personas-brazil) (CC BY 4.0) podem servir de sementes.
-2. **Respostas:** gerar N candidatas por prompt com um modelo de licença permissiva, como o Qwen3-8B. Para mesóclise, cedilha, "sem til" e "porque", usar exemplos no prompt, porque a taxa de acerto do Qwen3-8B fica em 3,2%, 5,4%, 7,0% e 8,3%, na média das 3 rodadas publicadas.
-3. **Validação:** rodar os validadores determinísticos do repositório.
-4. **Qualidade:** filtrar as aprovadas com [`Polygl0t/portuguese-qwen3-4b-instruct-quality-classifier`](https://huggingface.co/Polygl0t/portuguese-qwen3-4b-instruct-quality-classifier).
-5. **Saída:** aprovadas viram exemplos de SFT. Uma aprovada e uma reprovada do mesmo prompt viram um par `chosen` e `rejected`.
-
-**Custo estimado:** os 80.000 exemplos de D-03 exigem cerca de 460 mil respostas e 140 milhões de tokens, pelas taxas publicadas do Qwen3-8B e com cerca de 300 tokens por resposta. A 1.000 ou 2.000 tokens por segundo, são de 1 a 2 dias de GPU. A conta é grosseira: ignora o ganho com exemplos no prompt e os prompts com várias restrições. A velocidade real é medida na fase 2.
+| Grupo | Fonte | Participação nos tokens |
+| --- | --- | --- |
+| Com raciocínio | `reasoning` filtrado, inteiro | 75% |
+| Sem raciocínio | `general` | 12% |
+| Sem raciocínio | `structured`, `system_prompts`, `rewriting` e `summarization` | 8% |
+| Sem raciocínio | `math` e `retrieval` | 5% |
 
 ### Requisitos
 
 | ID | Requisito |
 | --- | --- |
-| D-01 | Renderizar com `tokenizer.apply_chat_template` do Lumi, sem formatação manual e com `enable_thinking=False`. Nos trainers do TRL, passar o argumento pela coluna `chat_template_kwargs`. A loss cobre apenas tokens do assistente. |
-| D-02 | Todo exemplo deve conter o prefixo `<think></think>` que o template adiciona. Descartar exemplos com `<think>` não vazio, como os do subset `reasoning`. |
-| D-03 | Mínimo de 5.000 exemplos aprovados por restrição do português e 2.000 pelas demais classes. São 6 e 25 classes, o que soma 80.000 exemplos. |
-| D-04 | Mínimo de 20.000 pares novos para APO. |
-| D-05 | Remover sobreposição com os benchmarks por k-gramas de 8 a 32 tokens, incluindo os 535 prompts do IFEval. No `lumi-constraints-pt`, comparar só o tema, porque 52,7% dos prompts do IFEval repetem ao menos 8 palavras seguidas do texto das instruções do registro. |
-| D-06 | Reservar 2 classes de instrução fora de um treino de controle, para medir generalização. |
-| D-07 | Revisão humana de 200 amostras por restrição do português, pois os validadores só checam a forma do texto. |
-| D-08 | Nunca usar o `rejected` dos subsets `harmfull-*` como exemplo de SFT: ele contém respostas nocivas por design. O nome tem dois "l", e um teste deve provar que o bloqueio encontra esses subsets. |
-| D-09 | Separar 2% para validação interna, estratificado por classe, e registrar hashes em `data_manifest.json`. |
-| D-10 | Não gerar respostas com APIs cujos termos proíbam treinar outros modelos. |
+| D-01 | Renderizar com `tokenizer.apply_chat_template` do Lumi, sem formatação manual. Declarar `enable_thinking` em todo exemplo; nos trainers do TRL, usar a coluna `chat_template_kwargs`. |
+| D-02 | Separar traço e resposta em `reasoning_content` e `content`, para o template gerar sempre `<think>\n...\n</think>\n`. O subset traz `</think>\n\n`, diferente do que o template gera com esse campo. |
+| D-03 | O prompt deve ser prefixo exato do exemplo renderizado e terminar em `<think>\n` com raciocínio ou em `<think></think>` sem raciocínio. A loss cobre traço, `</think>`, resposta e `<\|im_end\|>`; todo o resto recebe `labels = -100`. |
+| D-04 | Exemplos sem raciocínio não podem ter `<think>` com conteúdo. Descartar os que tiverem. |
+| D-05 | Remover sobreposição com todas as provas de teste e de validação por k-gramas de 8 a 32 tokens. Na checagem com palavras normalizadas, o GSM8K-PT `test` divide 12-gramas com `reasoning` em 2 de 1.295 itens e 8-gramas em 66. |
+| D-06 | Remover os prompts duplicados (3.112 linhas) e os traços com resíduo do pipeline, depois de revisar uma amostra do filtro. |
+| D-07 | Em `math_reasoning`, medir e descartar os exemplos em que o último número do traço não aparece na resposta. |
+| D-08 | Nunca truncar um exemplo: descartá-lo se passar do limite, porque cortar `</think>` ensina o modelo a não fechar o traço. |
+| D-09 | Descartar traços fora do português, com detector de idioma fixado na fase 1. |
+| D-10 | Revisão humana de 200 traços, 100 de cada tipo, antes do treino completo, para avaliar coerência e utilidade. |
+| D-11 | Separar 2% para validação interna, estratificado por `task_type`, e registrar hashes em `data_manifest.json`. |
 
 ## Requisitos de treino
 
-Os três métodos usam os mesmos módulos-alvo e diferem na carga dos pesos e no `use_dora`. O QLoRA reduz memória, mas não promete ganho de qualidade. Nesta máquina a memória não é limite, então ele fica como braço de comparação do estudo e só precisa empatar com o LoRA.
+Os dois métodos usam os mesmos módulos-alvo e diferem apenas no `use_dora`. O LoRA é a referência; o DoRA testa se há ganho em rank baixo, com mais custo de tempo.
 
 | Braço | Pesos-base | `use_dora` | Kernel Mamba | Papel |
 | --- | --- | --- | --- | --- |
 | LoRA | BF16 | `False` | Kernels permitidos | Referência |
-| DoRA | BF16 | `True` | Kernels permitidos | Testar ganho em rank baixo, com mais custo de tempo |
-| QLoRA | 4-bit NF4, double quant, cómputo BF16 | `False` | Caminho PyTorch, sem kernels | Comparação do estudo; a economia de memória não é necessária nesta máquina |
-| QDoRA (opcional) | Igual ao QLoRA | `True` | Caminho PyTorch, sem kernels | Só se DoRA vencer LoRA e a memória virar limite |
+| DoRA | BF16 | `True` | Kernels permitidos | Testar ganho em rank baixo |
 
 Os kernels são os pacotes `mamba-ssm` e `causal-conv1d`. O código do Lumi só ativa o caminho rápido com os dois instalados e, sem eles, cai no caminho PyTorch apenas com um aviso.
 
@@ -156,82 +165,87 @@ LoraConfig(
     bias="none",
     task_type="CAUSAL_LM",
     target_modules=TARGET_REGEX,
-    use_dora=False,  # True nos braços DoRA e QDoRA
+    use_dora=False,  # True no braço DoRA
 )
 ```
 
 - **`out_proj` do Mamba fica de fora.** Com `mamba-ssm`, o treino passa `self.out_proj.weight` direto ao kernel e ignora o `forward` do módulo. A [receita LoRA da NVIDIA](https://github.com/NVIDIA-NeMo/Automodel/blob/main/examples/llm_finetune/nemotron/nemotron_nano_4b_squad_peft.yaml) exclui `*.out_proj` por esse motivo.
 - **`conv1d` fica de fora.** O peso também é lido direto, e o PEFT não funde convoluções com `groups > 1`.
-- **`embeddings` e `lm_head` ficam de fora.** O adaptador deve mudar o comportamento sem tocar no vocabulário.
+- **`embeddings` e `lm_head` ficam de fora.** `<think>` e `</think>` já estão no vocabulário, então o adaptador não precisa tocar neles.
 
 Esses nomes existem tanto na implementação nativa do Transformers quanto no código próprio do Lumi, usado via `auto_map`. A fase 0 ainda precisa confirmá-los com `named_modules()`.
 
-### Regras do QLoRA
+### Carga e tokenizer
 
-- Com `mamba-ssm`, o kernel receberia o peso empacotado de 4 bits do `out_proj`. Por isso, o padrão é rodar sem esse pacote, no caminho PyTorch, que o Transformers descreve como correto e bem mais lento.
-- Se a fase 0 escolher a implementação nativa, não usar `use_kernels=True`, que ativa kernels do Hub.
-- A alternativa é `llm_int8_skip_modules=["lm_head", "out_proj"]`, que mantém os `out_proj` sem quantizar. O `lm_head` precisa constar porque essa lista substitui os padrões.
-- `prepare_model_for_kbit_training` converte para FP32 tudo que não está em 4 bits, o que dobra a memória de embeddings e `lm_head`.
-- A fusão final é sempre sobre o Lumi em BF16, e a avaliação usa esse modelo fundido, porque ele difere dos pesos 4-bit usados no treino.
-
-| Configuração | Pesos em memória (estimativa) |
-| --- | --- |
-| LoRA e DoRA em BF16 | 8,0 GB |
-| QLoRA, mantendo embeddings e `lm_head` em BF16 | 3,2 GB |
-| QLoRA com `prepare_model_for_kbit_training` | 4,9 GB |
-| QLoRA com `out_proj` fora da quantização e cast para FP32 | 6,6 GB |
-
-Em todos os braços, os logits custam cerca de 0,5 GB por 1.000 tokens no batch, antes dos gradientes (131.072 × 4 bytes por token). A fase 0 mede os valores reais.
+- `eos_token_id=[2, 11]` em toda geração. Sem isso, o `generate` não para em `<|im_end|>`, porque as configs do modelo só listam o id 2.
+- `pad_token="<unk>"` (id 0, o `pad_token_id` do `config.json`). O `tokenizer_config.json` não define esse token, e usar `<|im_end|>` como padding pode mascarar o fim real do turno nos labels.
+- Pesos em BF16: cerca de 8,0 GB nos dois braços. Os logits custam cerca de 0,5 GB por 1.000 tokens no batch, antes dos gradientes (131.072 × 4 bytes por token). A fase 0 mede os valores reais.
 
 ### Hiperparâmetros iniciais
 
 | Parâmetro | Valor | Origem |
 | --- | --- | --- |
-| `r` | 8, 16 e 32 | NVIDIA usa 8 |
+| `r` | 8, 16 e 32 | NVIDIA usa 8; mudar o comportamento pode exigir mais |
 | `lora_alpha` | 2 × `r` | NVIDIA usa 16 e 32 com `r=8` |
 | `lora_dropout` | 0 | NVIDIA usa 0, e o DoRA fica mais rápido assim |
-| Taxa de aprendizado do SFT | 1e-4, varrendo 5e-5 e 2e-4 | NVIDIA usa 1e-4 em LoRA |
-| Otimizador | AdamW com cosseno e warmup de 3% | Tucano 2, warmup escolhido no projeto |
-| Sequência | 2.048 tokens | NVIDIA e Tucano 2 |
-| Épocas do SFT | Até 3, com parada antecipada | Escolha do projeto; o Tucano 2 usou 5 |
+| Taxa de aprendizado | 1e-4, varrendo 5e-5 e 2e-4 | NVIDIA usa 1e-4 em LoRA |
+| Otimizador | AdamW com cosseno e warmup de 3% | AdamW e cosseno do Tucano 2; warmup escolhido no projeto (o Tucano 2 usa 10%) |
+| Sequência | 2.048 tokens, sem truncar | Acima do máximo de 1.000 tokens dos dados |
+| Épocas | Até 3, com parada antecipada | Escolha do projeto; o Tucano 2 usou 5 |
 | Gradient checkpointing | `use_reentrant=False`, `use_cache=False` | Requisito de memória |
-| APO | `loss_type=["apo_zero"]`, beta 0,5, taxa 1e-5, 2 épocas | Tucano 2 e TRL; épocas escolhidas no projeto |
 
 ### Matriz de experimentos
 
 | Etapa | Execuções | Dados | Saída |
 | --- | --- | --- | --- |
-| Viabilidade | 1 (LoRA, `r=16`) | 3.000 exemplos de 3 restrições | Decisão sobre a geração completa |
+| Viabilidade | 1 (LoRA, `r=16`) | 10.000 exemplos com raciocínio, mais 25% sem | Decisão sobre seguir |
 | Varredura de taxa | 3 (LoRA, `r=16`) | 20% | Taxa fixada |
-| Piloto | 9 (3 métodos × 3 ranks) | 20% | Melhor rank por método |
-| Finalistas | 9 (3 métodos × 3 seeds) | 100% | Melhor adaptador por método |
-| Controle de generalização | 1 | 100%, sem 2 classes | Ganho nas classes não vistas |
-| APO | 3 (1 por método) | Preferências | Candidatos finais |
+| Mistura | 2 (LoRA, `r=16`): 75/25 e 100/0 | 20% | Mistura fixada |
+| Piloto | 6 (2 métodos × 3 ranks) | 20% | Melhor rank por método |
+| Finalistas | 6 (2 métodos × 3 seeds) | 100% | Melhor adaptador por método |
 
-A seleção usa a taxa de aprovação na validação interna, nunca o benchmark.
+São 18 execuções e, no pior caso, cerca de 1,2 bilhão de tokens de treino. A fase 0 mede a velocidade e transforma isso em horas de GPU.
 
-### APO com adaptadores
-
-- Passar ao `DPOTrainer` o `PeftModel` já treinado, sem `peft_config` nem `ref_model`. Assim, o TRL cria um adaptador `ref` congelado e a referência é o modelo pós-SFT.
-- Com um `peft_config` novo, a referência passaria a ser o Lumi sem adaptador, o que muda o sentido do APO.
-- Passar o modelo já carregado, e não o nome, porque o TRL usa FP32 quando recebe uma string sem `dtype`.
-- Manter `sync_ref_model=False`, pois o TRL não suporta essa opção com PEFT.
+A seleção usa os conjuntos de validação de A-10, nunca as provas de teste. A loss não basta, porque não mede se o raciocínio melhora a resposta.
 
 ## Requisitos de avaliação
 
-Um candidato só vence se superar o Lumi no mesmo harness, com intervalo de confiança acima de zero e sem perder conhecimento.
+Um candidato só vence se o modo com raciocínio superar o Lumi nos dois modos, sem piorar o modo sem raciocínio nem a segurança.
+
+### Provas
+
+A suíte de raciocínio roda nos dois modos. As 6 notas do cartão são a trava contra regressão e também aparecem no relatório com raciocínio ligado, para a baseline e o vencedor.
+
+| Prova da suíte | Conjunto | Amostra | Licença |
+| --- | --- | --- | --- |
+| GSM8K-PT | [`Polygl0t/gsm8k-pt`](https://huggingface.co/datasets/Polygl0t/gsm8k-pt), `test` | 1.295 | MIT |
+| MMLU-ProX PT | [`li-lab/MMLU-ProX`](https://huggingface.co/datasets/li-lab/MMLU-ProX), `pt`, `test` | 11.759 | MIT |
+| ENEM | [`eduagarcia/enem_challenge`](https://huggingface.co/datasets/eduagarcia/enem_challenge) | 1.432 | Não declarada |
+| BLUEX | [`nicholasKluge/BLUEX_without_images`](https://huggingface.co/datasets/nicholasKluge/BLUEX_without_images) | 724 | `other` |
+| OAB | [`eduagarcia/oab_exams`](https://huggingface.co/datasets/eduagarcia/oab_exams) | 2.210 | Não declarada |
+
+Esses conjuntos só entram na avaliação, nunca no treino. O artigo do Tucano 2 não deixa claro se usou as mesmas versões de ENEM, BLUEX e OAB, então suas notas servem só como ordem de grandeza.
+
+### Requisitos
 
 | ID | Requisito |
 | --- | --- |
-| A-01 | Medir as 6 notas do cartão no Lumi v0.2 antes de treinar. A referência é a baseline medida aqui, porque o harness muda a nota: o Nemotron 3 Nano 4B tem 40,93 no gráfico do CEIA e 39,63 no repositório do IFEval. |
-| A-02 | Rodar os 535 prompts do Portuguese-IFEval com o avaliador oficial e registrar a nota estrita por prompt e a taxa por classe. |
-| A-03 | Rodar MMLU PT (ensino médio e graduação), Global MMLU PT, MMMLU PT e INCLUDE PT com versão e amostra fixadas, usando as provas completas da tabela de conjuntos inferidos abaixo, pois mais questões reduzem o ruído. Não usar `Portuguese-MMLU/*` nem as cópias em `cemig-ceia` e `bench-temp-2`: esses conjuntos têm 8.704 e 29.094 questões de teste, o que tornaria a baseline não comparável ao cartão. |
-| A-04 | Usar temperatura 0, o mesmo limite de tokens e `enable_thinking=False`. |
-| A-05 | Calcular a diferença para a baseline com bootstrap pareado por item, dentro de cada prova: 10.000 reamostras e IC de 95% para cada nota e para o Overall. |
-| A-06 | Avaliar sempre o modelo fundido em BF16, inclusive no braço QLoRA. |
-| A-07 | Rodar o benchmark apenas na baseline, nos 3 candidatos finais e no controle de generalização. |
-| A-08 | Registrar pico de memória, tempo por época e tokens por segundo em cada execução. Medir a memória com `torch.cuda.max_memory_allocated()`, porque o `nvidia-smi` não a informa nesta máquina. |
-| A-09 | Medir recusas em 200 prompts de `harmfull-no-reasoning`, reservados fora de todo treino, para detectar perda de segurança. |
+| A-01 | Medir o Lumi v0.2 antes de treinar, nos dois modos. A referência é a baseline medida aqui, porque o harness muda a nota: o Nemotron 3 Nano 4B tem 40,93 no gráfico do CEIA e 39,63 no repositório do IFEval. |
+| A-02 | Rodar os 535 prompts do Portuguese-IFEval com o avaliador oficial e registrar a nota estrita por prompt. Passar a ele só o texto depois de `</think>`, porque a documentação do repositório não diz se a limpeza remove o traço. |
+| A-03 | Rodar MMLU PT (ensino médio e graduação), Global MMLU PT, MMMLU PT e INCLUDE PT com versão e amostra fixadas, usando as provas completas da tabela de conjuntos inferidos abaixo. Não usar `Portuguese-MMLU/*` nem as cópias em `cemig-ceia` e `bench-temp-2`: esses conjuntos têm 8.704 e 29.094 questões de teste, o que tornaria a baseline não comparável ao cartão. |
+| A-04 | Usar temperatura 0, sem exemplos no prompt, com `enable_thinking` declarado e até 4.096 tokens novos nos dois modos. Sem penalidade de repetição, exceto no IFEval, cujo padrão em Transformers é 1,2. Registrar se isso prejudica os traços. |
+| A-05 | Extrair a resposta só depois de `</think>`. Resposta sem `</think>` ou sem alternativa conta como erro, e a taxa de cada caso vai para o relatório. Testar a extração com casos sintéticos antes da baseline. |
+| A-06 | No GSM8K-PT, pedir a linha final `#### <número>` e usar `strict-match` como nota. Registrar também `flexible-extract`, porque o artigo do Tucano 2 descreve os dois e não diz qual está nas suas tabelas. |
+| A-07 | Calcular a diferença para a baseline com bootstrap pareado por item, dentro de cada prova: 10.000 reamostras e IC de 95% para cada nota, para a Nota de raciocínio e para o Overall. |
+| A-08 | Medir a forma do modo com raciocínio: fechamento de `</think>`, resposta não vazia, traço não vazio, idioma do traço, truncamento em 4.096 tokens, tokens por resposta (mediana e p95) e, no GSM8K-PT, se o último número do traço é a resposta. |
+| A-09 | Medir recusas nos dois modos em 200 prompts de `harmfull-no-reasoning`, excluindo o prompt que também aparece em `reasoning`. Revisar à mão 50 traços desses prompts, porque o traço pode ter conteúdo nocivo mesmo quando a resposta recusa. |
+| A-10 | Selecionar candidatos com dois conjuntos de validação: 1.000 itens do GSM8K-PT `train` sem 8-gramas em comum com o treino final, e 385 questões de Global MMLU PT `dev` (285), MMLU-ProX PT `validation` (70) e INCLUDE PT `validation` (30). Na checagem inicial, 43,6% do `train` tinha 8-gramas em comum com `reasoning`, então a nota serve para comparar candidatos, não como estimativa absoluta. |
+| A-11 | Avaliar sempre o modelo fundido em BF16. |
+| A-12 | Rodar as provas de teste apenas em: Lumi (suíte e 6 notas, nos dois modos); os 2 candidatos finais (suíte nos dois modos e 6 notas sem raciocínio); e o vencedor (6 notas com raciocínio). |
+| A-13 | No vencedor, repetir a validação do GSM8K-PT com `temperature=1.0` e `top_p=0.95`, a recomendação do Nemotron para raciocínio, em 3 seeds. O resultado entra no relatório, sem afetar a seleção. |
+| A-14 | Registrar pico de memória, tempo por época e tokens por segundo em cada execução. Medir a memória com `torch.cuda.max_memory_allocated()`, porque o `nvidia-smi` não a informa nesta máquina. |
+
+**Custo estimado:** um sistema com raciocínio nas 11 provas (73.095 itens, cerca de 500 tokens por resposta) gera cerca de 37 milhões de tokens, ou 5 a 10 horas a 1.000 ou 2.000 tokens por segundo. A matriz de A-12 soma cerca de 13 a 26 horas, com o modo sem raciocínio incluído. A conta é grosseira, porque o batch pode acelerar bastante, e a fase 0 mede a velocidade real.
 
 **Conjuntos e amostras do cartão (inferência)**
 
@@ -246,34 +260,33 @@ O cartão não informa conjuntos, amostras, harness nem parâmetros, e o CEIA ai
 | INCLUDE PT | `CohereLabs/include-base-44`, `Portuguese`, `test` | 551 | Prova completa |
 | IFEval PT estrito | Portuguese-IFEval, conjunto PT | 535 | Prova completa; as notas não coincidem com as rodadas publicadas nos 6 modelos em comum, então não vêm delas |
 
-As notas do teste independente da v0.1 nas provas de múltipla escolha usam 1.000 questões por prova, então não são comparáveis às do cartão.
-
 **Critério de vitória**
 
-- IC 95% da diferença do Overall inteiramente acima de 0.
-- IFEval PT estrito ≥ 39,63.
-- Queda média de até 1 ponto nas 5 notas de múltipla escolha, sem nenhuma nota com IC 95% da diferença inteiramente abaixo de 0.
-- Taxa de recusa não inferior à do Lumi, salvo decisão registrada.
+- IC 95% da diferença da Nota de raciocínio inteiramente acima de 0, com raciocínio ligado, contra o Lumi sem raciocínio e contra o Lumi com raciocínio.
+- Na suíte, ao menos 98% das respostas fecham `</think>` e trazem texto depois, e ao menos 90% dos traços estão em português.
+- Sem raciocínio, queda de até 1 ponto no Overall, sem nenhuma nota com IC 95% da diferença inteiramente abaixo de 0.
+- Taxa de recusa, nos dois modos, não inferior à do Lumi sem raciocínio, salvo decisão registrada.
 
-A trava pela média evita reprovar por acaso: com as provas completas inferidas acima, um limite de 1 ponto por nota reprovaria de 15% a 33% dos modelos sem perda real, quase sempre por causa do INCLUDE PT, que tem só 551 questões, e esta regra reprova cerca de 12%. Com as outras notas estáveis, o primeiro critério pede IFEval de 39,2 a 41,2, faixa próxima do mínimo de 39,63, então qualquer um dos dois pode ser o mais exigente. Essas contas são estimativas e supõem de 5% a 20% das respostas mudando nas provas de múltipla escolha e de 15% a 25% no IFEval.
+Se os dois candidatos vencerem, fica o de maior Nota de raciocínio. Se o IC 95% da diferença entre eles contiver 0, fica o LoRA, que é mais simples e mais rápido.
 
-Se nenhum candidato cumprir os quatro itens, o relatório declara que não houve vitória e indica a causa provável por classe. Se o ganho aparecer só nas classes treinadas, o relatório deve dizer isso explicitamente, com o resultado do controle de generalização.
+O Overall com raciocínio ligado entra no relatório sem trava, porque o custo em formato é conhecido: o Tucano Think perdeu 10 pontos no IFEval-PT contra o Instruct.
+
+As contas abaixo são estimativas. Com 25% a 40% das questões mudando de acerto entre dois sistemas, o IC 95% fica em torno de ±1,1 a ±1,4 na Nota de raciocínio e de ±2,7 a ±3,4 no GSM8K-PT, então um ganho de 3 pontos no GSM8K-PT está no limite do detectável. Na trava de 6 notas, a chance de reprovar sem perda real é de cerca de 14% (1 - 0,975⁶, supondo notas independentes).
+
+Se nenhum candidato cumprir os quatro itens, o relatório declara que não houve vitória e indica a causa provável por prova e por tipo de dado. Se só a trava do modo sem raciocínio falhar, o relatório diz isso e a escolha entre adotar o modelo fundido ou usar o adaptador só com raciocínio ligado fica para decisão. Se o ganho aparecer só em matemática, o relatório também deve dizer isso explicitamente.
 
 ## Arquitetura do repositório e configuração
 
 O repositório separa dados, treino e avaliação, e cada execução nasce de um YAML versionado.
 
 ```text
-Dados de SFT (GigaVerbo-v2 SFT + lumi-constraints-pt)
-  -> LoRA (BF16) | DoRA (BF16) | QLoRA (4-bit NF4)
-  -> APO por método (pares de preferência, adaptador ref congelado)
+Dados de SFT (reasoning filtrado + parcela sem raciocínio)
+  -> LoRA (BF16) | DoRA (BF16)
   -> Fusão sobre o Lumi em BF16
-  -> Comparação com a baseline do Lumi no mesmo harness
+  -> Comparação com a baseline do Lumi nos dois modos, no mesmo harness
      sim: entregar adaptador, modelo e relatório
-     não: relatório sem vitória, com causa provável por classe
+     não: relatório sem vitória, com causa provável por prova
 ```
-
-Cada braço usa os mesmos dados, passa pelo APO e é fundido em BF16 antes da comparação com a baseline.
 
 ```text
 lumi-finetune/
@@ -281,18 +294,15 @@ lumi-finetune/
 ├── pyproject.toml                # dependências com lockfile
 ├── configs/
 │   ├── base.yaml
-│   ├── apo.yaml
-│   └── arms/{lora,dora,qlora,qdora}.yaml
+│   └── arms/{lora,dora}.yaml
 ├── src/lumi_ft/
-│   ├── modeling/load.py          # carga BF16 e 4-bit
+│   ├── modeling/load.py          # carga BF16, eos e pad
 │   ├── modeling/peft_setup.py    # alvos e checagens
-│   ├── data/gigaverbo.py         # seleção e renderização
-│   ├── data/constraints.py       # gerador do dataset novo
-│   ├── data/decontaminate.py     # k-gramas contra benchmarks
+│   ├── data/gigaverbo.py         # seleção, filtros e renderização
+│   ├── data/decontaminate.py     # k-gramas contra as provas
 │   ├── train/sft.py
-│   ├── train/apo.py
 │   ├── train/merge.py            # fusão sobre BF16
-│   └── eval/{ifeval,mcq,bootstrap,report}.py
+│   └── eval/{parse,ifeval,mcq,gsm8k,safety,bootstrap,report}.py
 ├── tests/
 ├── third_party/portuguese-ifeval/ # fixado por commit
 ├── data/                         # fora do Git
@@ -301,27 +311,28 @@ lumi-finetune/
 ```
 
 ```yaml
-# configs/arms/qlora.yaml
+# configs/arms/dora.yaml
 extends: ../base.yaml
-arm: qlora
+arm: dora
 model:
   name: ceia-br/lumi-4b
   revision: 27b30f40b930fd05cee5e1c1f8790f70fa5b816d  # v0.2
   dtype: bfloat16
-template:
-  enable_thinking: false
-quantization:
-  load_in_4bit: true
-  bnb_4bit_quant_type: nf4
-  bnb_4bit_use_double_quant: true
-  bnb_4bit_compute_dtype: bfloat16
+tokenizer:
+  pad_token: "<unk>"
+data:
+  reasoning_token_share: 0.75
+generation:
+  eos_token_id: [2, 11]
+  max_new_tokens: 4096
+  temperature: 0
+eval:
+  enable_thinking: [true, false]
 lora:
   r: 16
   lora_alpha: 32
   lora_dropout: 0.0
-  use_dora: false
-env:
-  forbid_packages: [mamba-ssm, causal-conv1d]
+  use_dora: true
 ```
 
 O projeto roda na máquina abaixo, e a fase 0 prova o que depende dela.
@@ -339,8 +350,8 @@ Os pacotes seguem a tabela abaixo.
 | Transformers | ≥ 5.8.1, a versão do `config.json` do Lumi |
 | PEFT | ≥ 0.20 |
 | TRL | ≥ 1.17 |
-| bitsandbytes e PyTorch | Fixar na fase 0. Há wheel `aarch64` do bitsandbytes, mas o teste de gradiente precisa provar que ele funciona nesta máquina |
-| `mamba-ssm` e `causal-conv1d` | Apenas nos ambientes LoRA e DoRA. Só têm código-fonte no PyPI, então precisam compilar em ARM64 |
+| PyTorch | Fixar na fase 0 |
+| `mamba-ssm` e `causal-conv1d` | Só têm código-fonte no PyPI, então precisam compilar em ARM64 |
 
 Cada execução grava em `runs/<id>/` o YAML resolvido, o commit, a seed, o hash dos dados, as métricas e o adaptador.
 
@@ -357,129 +368,117 @@ Estas regras valem para todas as fases.
 3. Nunca usar prompts de benchmark no treino; os testes devem bloquear isso.
 4. Nunca alterar metas, métricas ou limiares para um candidato passar.
 5. Não publicar nada no Hugging Face sem pedido explícito.
-6. Não instalar `mamba-ssm` nem `causal-conv1d` no ambiente do QLoRA.
-7. Se o código do Lumi divergir deste PRD, registrar a divergência e perguntar antes de seguir.
-8. Usar `enable_thinking=False` em treino, APO e avaliação.
-9. Carregar `env.sh` antes de baixar, instalar ou executar qualquer coisa, para manter os caches dentro de `barros`.
+6. Se o código do Lumi divergir deste PRD, registrar a divergência e perguntar antes de seguir.
+7. Declarar `enable_thinking` em todo treino e avaliação, porque o padrão do template é ligado.
+8. Carregar `env.sh` antes de baixar, instalar ou executar qualquer coisa, para manter os caches dentro de `barros`.
 
 ### Fase 0: fundação e baseline
 
-- [ ] Criar repositório, lockfile e dois ambientes, com e sem `mamba-ssm` e `causal-conv1d`, compilando os pacotes para ARM64.
-- [ ] Confirmar no ambiente com kernels que `is_fast_path_available` é verdadeiro, porque o código cai no caminho lento só com um aviso.
+- [ ] Criar repositório, lockfile e ambiente, compilando `mamba-ssm` e `causal-conv1d` para ARM64.
+- [ ] Confirmar que `is_fast_path_available` é verdadeiro, porque o código cai no caminho lento só com um aviso.
 - [ ] Baixar o Lumi v0.2 no commit `27b30f40` e ler `modeling_nemotron_h.py`.
 - [ ] Comparar logits do código do repositório e da implementação nativa em um batch fixo, e escolher uma.
 - [ ] Listar `named_modules()` e confirmar `TARGET_REGEX`.
-- [ ] Provar nos três braços que todo parâmetro `lora_*` treinável recebe gradiente não nulo após 1 passo.
+- [ ] Provar nos dois braços que todo parâmetro `lora_*` treinável recebe gradiente não nulo após 1 passo.
 - [ ] Provar que um adaptador recém-criado não altera os logits.
-- [ ] Provar que, sobre o Lumi em BF16, adaptador ativo e modelo fundido geram logits equivalentes.
-- [ ] Medir pico de memória, maior batch viável e tokens por segundo por braço, conforme A-08.
-- [ ] Medir a baseline do Lumi conforme A-01 a A-04, com taxa por classe.
+- [ ] Provar que adaptador ativo e modelo fundido geram logits equivalentes.
+- [ ] Provar que a geração para em `<|im_end|>` com `eos_token_id=[2, 11]`.
+- [ ] Testar a extração de resposta conforme A-05 e A-06.
+- [ ] Medir pico de memória, maior batch viável e tokens por segundo por braço, conforme A-14.
+- [ ] Medir a baseline do Lumi nos dois modos, conforme A-01 a A-09, inclusive a forma do raciocínio.
 
-**Gate:** todos os testes passam, e a baseline está a até 1 ponto do cartão ou a diferença está documentada.
+**Gate:** todos os testes passam, e a baseline sem raciocínio está a até 1 ponto do cartão ou a diferença está documentada. Se o Lumi com raciocínio já cumprir as metas de forma ou de nota, apresentar isso antes de seguir, porque o problema a resolver muda.
 
-### Fase 1: dados existentes
+### Fase 1: dados
 
-- [ ] Implementar seleção, filtros e renderização conforme D-01, D-02 e D-09.
-- [ ] Criar testes comparando exemplos renderizados com o template do Lumi.
-- [ ] Provar que todo prompt renderizado termina em `<think></think>`, inclusive no caminho do TRL.
-- [ ] Verificar que tokens fora do assistente recebem `labels = -100`.
-- [ ] Preparar pares de preferência, com o bloqueio de D-08.
+- [ ] Implementar seleção, filtros, renderização e remoção de sobreposição, conforme D-01 a D-09.
+- [ ] Criar testes comparando exemplos renderizados com o template do Lumi, nos dois modos.
+- [ ] Provar que o prompt é prefixo exato do exemplo nos dois modos, inclusive no caminho do TRL.
+- [ ] Verificar que `labels` cobrem `</think>` e `<|im_end|>`, e que tudo fora da resposta recebe `-100`.
+- [ ] Montar os conjuntos de validação conforme A-10 e registrar os hashes conforme D-11.
+- [ ] Relatar quantas linhas cada filtro removeu, por `task_type`.
+- [ ] Fazer a revisão humana de D-10.
 
-**Gate:** 100 amostras renderizadas revisadas, sem erro de template ou máscara.
+**Gate:** 100 amostras renderizadas revisadas, sem erro de template ou máscara, e revisão de D-10 concluída.
 
-### Fase 2: viabilidade e gerador de restrições
+### Fase 2: viabilidade
 
-Primeiro, um teste pequeno mostra se os dados de restrições movem a taxa de aprovação. Só depois vem a geração completa.
+Um treino pequeno mostra se o caminho funciona antes de gastar GPU com a matriz completa.
 
-**Etapa A: teste de viabilidade**
+- [ ] Treinar 1 LoRA com `r=16` e taxa 1e-4 em 10.000 exemplos com raciocínio, estratificados por `task_type`, mais 25% de tokens sem raciocínio.
+- [ ] Comparar adaptador e Lumi, nos dois modos, nos conjuntos de validação de A-10, com IC 95% da diferença.
+- [ ] Medir a forma do raciocínio conforme A-08.
+- [ ] Ler 50 respostas e registrar o que os números não mostram.
 
-- [ ] Implementar geração, validação e filtro de qualidade.
-- [ ] Gerar 3.000 exemplos aprovados, com D-05 aplicado, 1.000 em cada uma de 3 restrições do português escolhidas pela baseline por classe.
-- [ ] Treinar 1 LoRA com `r=16` e taxa 1e-4 nesses exemplos.
-- [ ] Comparar adaptador e Lumi em 200 prompts novos por classe, com IC 95% da diferença.
-- [ ] Medir os tokens por segundo do gerador e estimar as horas da geração completa.
-
-**Gate A:** o adaptador supera o Lumi em ao menos 2 das 3 classes, com IC 95% da diferença acima de 0. Se falhar, parar e decidir se a geração completa ainda vale o custo.
-
-**Etapa B: geração completa**
-
-- [ ] Gerar o dataset completo.
-- [ ] Rodar a remoção de sobreposição com benchmarks.
-- [ ] Gerar os pares `chosen` e `rejected`.
-- [ ] Preparar a amostra para revisão humana.
-
-**Gate B:** D-03, D-04, D-05 e D-07 atendidos, com taxa de aprovação por classe no relatório.
+**Gate:** ao menos 95% das respostas fecham `</think>`, ao menos 90% dos traços estão em português e a nota na validação do GSM8K-PT tem IC 95% da diferença acima de 0 contra o Lumi sem raciocínio. Se falhar, parar e decidir entre mais dados, traços gerados e verificados (outro PRD) ou encerrar.
 
 ### Fase 3: piloto
 
 - [ ] Rodar a varredura de taxa de aprendizado.
-- [ ] Rodar as 9 execuções do piloto.
-- [ ] Comparar aprovação na validação, loss, memória e tempo.
+- [ ] Comparar as misturas 75/25 e 100/0, inclusive no modo sem raciocínio.
+- [ ] Rodar as 6 execuções do piloto.
+- [ ] Comparar nota na validação, forma do raciocínio, loss, memória e tempo.
 
-**Gate:** um rank escolhido por método, com justificativa.
+**Gate:** taxa, mistura e um rank por método escolhidos, com justificativa.
 
-### Fase 4: finalistas e APO
+### Fase 4: finalistas
 
-- [ ] Rodar as 9 execuções finalistas e o controle de generalização.
-- [ ] Rodar o APO no melhor adaptador de cada método.
-- [ ] Provar que `chosen_logratios` e `rejected_logratios` ficam perto de 0 no início do APO.
-- [ ] Fundir os 3 candidatos sobre o Lumi em BF16.
+- [ ] Rodar as 6 execuções finalistas.
+- [ ] Escolher o melhor adaptador de cada método na validação.
+- [ ] Fundir os 2 candidatos sobre o Lumi em BF16 e repetir a checagem de equivalência.
 
-**Gate:** 3 candidatos fundidos e checados, mais o modelo de controle.
+**Gate:** 2 candidatos fundidos e checados.
 
 ### Fase 5: avaliação e entrega
 
-- [ ] Rodar o benchmark completo conforme A-02 a A-09.
-- [ ] Gerar `reports/final.md` com tabela por método e por classe, IC 95%, memória e tempo.
+- [ ] Rodar o benchmark conforme A-02 a A-09 e a matriz de A-12.
+- [ ] Rodar a análise de sensibilidade de A-13 no vencedor.
+- [ ] Gerar `reports/final.md` com tabela por método, por prova e por modo, IC 95%, forma do raciocínio, memória e tempo.
 - [ ] Registrar qual método venceu ou declarar que nenhum venceu.
-- [ ] Rascunhar um model card com base, dados, limitações e o ganho nas classes treinadas.
+- [ ] Rascunhar um model card com base, dados, limitações, o uso em um só turno e o aviso de que o modo foi treinado fora do pipeline oficial do CEIA.
 
 **Gate:** critério de vitória avaliado e relatório reproduzível a partir de `runs/`.
 
 ## Riscos, restrições e decisões em aberto
 
-O maior risco técnico é o código próprio do Lumi se comportar de forma diferente da implementação nativa. Os nomes dos módulos já foram conferidos, mas gradientes e logits ainda precisam de prova na fase 0.
+O maior risco é de resultado: o Tucano 3.7B Think usou os mesmos dados e só ganhou 2,89 pontos no GSM8K-PT, e ainda perdeu nas outras provas. O maior risco técnico continua sendo o código próprio do Lumi se comportar de forma diferente da implementação nativa.
 
 | Risco | Efeito | Mitigação |
 | --- | --- | --- |
+| Traços curtos e sem checagem limitam o ganho | Modelo imita o formato sem acertar mais | Gate da fase 2 antes da matriz completa; sem ganho, decidir sobre novos dados |
+| Dados concentrados em matemática | Ganho só no GSM8K-PT | Relatório por prova; H3 explícita |
 | Código do Lumi diverge do nativo | Alvos errados ou adaptador sem efeito | Testes de gradiente e equivalência da fase 0 |
-| Kernels não compilam em ARM64 | Todos os braços ficam no caminho lento | Medir na fase 0 e, se preciso, usar o caminho PyTorch em todos |
-| Caminho PyTorch lento no QLoRA | Custo alto de GPU | Medir na fase 0 e, se preciso, usar `llm_int8_skip_modules` |
-| Dados de restrições não movem a nota | Custo alto sem ganho | Teste de viabilidade da fase 2, antes da geração completa |
-| Baixo rank não corrige a fraqueza | Meta não atingida | Testar `r=32` e, se falhar, abrir PRD de treino completo |
-| Treino nas classes e na redação das instruções da prova infla a nota | Ganho não generaliza | Controle com 2 classes reservadas e declaração no relatório |
-| Validador aprova texto ruim | Modelo aprende truques de forma | Filtro de qualidade e revisão humana |
-| Treino reduz conhecimento | Queda nas notas de múltipla escolha | Trava do critério de vitória; a medida interna está em aberto |
-| Ajuste indireto ao benchmark | Resultado otimista | Seleção na validação interna e benchmark só nos finalistas |
+| Kernels não compilam em ARM64 | Treino no caminho lento | Medir na fase 0 e, se preciso, usar o caminho PyTorch nos dois braços |
+| Modo sem raciocínio regride | Modelo fundido piora o uso atual | Parcela de 25%, teste da mistura e trava do critério de vitória |
+| Traço não fecha ou entra em loop | Resposta perdida e custo alto | D-08, parada correta, limite de 4.096 tokens e métricas de A-08 |
+| Traço em inglês | Perde o objetivo de raciocinar em português | D-09, A-08 e gate da fase 2; ver decisão em aberto |
+| Harness erra no modo com raciocínio | Nota falsa, como pode ter ocorrido no BELEBELE do Qwen3-4B | Testes de extração de A-05 e taxas de erro no relatório |
+| Baixo rank não basta | Meta não atingida | Testar `r=32` e, se falhar, abrir PRD de treino completo |
+| Traço expõe conteúdo nocivo ou reduz recusas | Perda de segurança | A-09, com revisão humana e trava do critério de vitória |
+| Sobreposição parafraseada com as provas | Nota inflada | D-05 e revisão dos casos limítrofes; validação usada só para comparar candidatos |
+| Ajuste indireto ao benchmark | Resultado otimista | Seleção na validação e benchmark só nos finalistas |
+| CEIA lança o modo oficial | Trabalho perde utilidade prática | Perguntar o prazo antes da fase 2 |
 | Licença impede derivados | Modelo não pode ser publicado | Confirmar antes de qualquer publicação |
-
-O cartão manda manter o raciocínio desligado nesta versão, então este PRD não treina esse modo. A recomendação da Unsloth, de ao menos 75% de exemplos com raciocínio em modelos Nemotron Nano, só volta a importar quando o CEIA liberar esse modo.
 
 ### Decisões em aberto
 
-- [ ] Qual é o orçamento de tempo de GPU? Este PRD assume a Jetson AGX Thor deste projeto.
-- [ ] Qual é a licença do Lumi, e derivados podem ser publicados?
-- [ ] O CEIA confirma os conjuntos e as amostras inferidos em "Requisitos de avaliação", e quais revisões usou?
 - [ ] Qual harness e quais parâmetros o CEIA usou no cartão (temperatura, few-shot, prompts, limite de tokens e raciocínio nos modelos comparados)? O cartão não documenta nada disso. Pedir também o notebook `colab_graficos_llms-2.ipynb`, citado na primeira versão do cartão.
-- [ ] Qual licença terá o `lumi-constraints-pt`?
-- [ ] O que fazer se o APO piorar o modelo, já que hoje todo candidato passa por ele?
-- [ ] Como desempatar se mais de um candidato vencer?
-- [ ] Qual medida interna de conhecimento acompanha a seleção, que hoje só olha o validador?
-- [ ] Quais 2 classes ficam de fora no controle? Declarar antes de treinar.
+- [ ] Vale usar [`adalberto-temp/gsm8k-sft-thinking-pt`](https://huggingface.co/datasets/adalberto-temp/gsm8k-sft-thinking-pt)? São 56.296 respostas do Qwen3-30B-A3B-Thinking para 7.225 problemas do GSM8K, geradas com o traço antes da resposta, e com checagem pedida no prompt. A mediana é de 236 palavras, e o p99 chega a 1.819. O dataset não declara licença, cerca de 6% dos traços parecem conter trechos em inglês e usá-lo exigiria trocar a validação de A-10.
+
 
 ### Fontes
 
-Nesta versão, o `modeling_nemotron_h.py` do Lumi foi lido só nos trechos de módulos e kernels, e o apêndice L do artigo do Tucano 2 não foi lido.
+Nesta versão, o `chat_template.jinja` e as configs do Lumi foram lidos por completo, e o `modeling_nemotron_h.py` só nos trechos de módulos e kernels. Do artigo do Tucano 2, foram lidas as seções sobre dados, pós-treino e avaliação, com as tabelas dos modelos Think. Os traços foram avaliados só em amostras pequenas, sem revisão sistemática.
 
-- [Cartão do CEIA Lumi-4B](https://huggingface.co/ceia-br/lumi-4b)
-- [Teste independente em GGUF](https://huggingface.co/Mateus-Nery/lumi-4b-GGUF), da v0.1
-- [Portuguese-IFEval](https://github.com/ark-aiml-research/Portuguese-IFEval), incluindo os resultados publicados em `experiments/`
+- [Cartão do CEIA Lumi-4B](https://huggingface.co/ceia-br/lumi-4b), incluindo a [versão antiga](https://huggingface.co/ceia-br/lumi-4b/blob/1c8928e1/README.md) com o MMLU-ProX PT
+- [Cartão do Nemotron 3 Nano 4B](https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16)
+- [GigaVerbo-v2 SFT](https://huggingface.co/datasets/Polygl0t/gigaverbo-v2-sft) e [Preferences](https://huggingface.co/datasets/Polygl0t/gigaverbo-v2-preferences)
+- [Tucano 2 Cool](https://arxiv.org/abs/2603.03543) e [harness do Tucano 2](https://github.com/Polygl0t/lm-evaluation-harness)
+- [Portuguese-IFEval](https://github.com/ark-aiml-research/Portuguese-IFEval)
+- [GSM8K-PT](https://huggingface.co/datasets/Polygl0t/gsm8k-pt), [MMLU-ProX](https://huggingface.co/datasets/li-lab/MMLU-ProX), [ENEM](https://huggingface.co/datasets/eduagarcia/enem_challenge), [BLUEX](https://huggingface.co/datasets/nicholasKluge/BLUEX_without_images) e [OAB](https://huggingface.co/datasets/eduagarcia/oab_exams)
 - [MMLU PT, ensino médio](https://huggingface.co/datasets/mmlu-pt/mmlu-pt-high-school-full) e [graduação](https://huggingface.co/datasets/mmlu-pt/mmlu-pt-undergraduate-full)
 - [Global-MMLU](https://huggingface.co/datasets/CohereLabs/Global-MMLU), [MMMLU](https://huggingface.co/datasets/openai/MMMLU) e [INCLUDE](https://huggingface.co/datasets/CohereLabs/include-base-44)
-- [Tucano 2 Cool](https://arxiv.org/abs/2603.03543)
 - [`nemotron_h` no Transformers](https://github.com/huggingface/transformers/blob/main/src/transformers/models/nemotron_h/modeling_nemotron_h.py)
 - [DoRA no PEFT](https://huggingface.co/docs/peft/main/package_reference/lora_variant_dora)
-- [Quantização no PEFT](https://github.com/huggingface/peft/blob/main/docs/source/developer_guides/quantization.md)
-- [DPO no TRL](https://huggingface.co/docs/trl/main/en/dpo_trainer)
 - [Nemotron 3 Nano 4B no Megatron Bridge](https://docs.nvidia.com/nemo/megatron-bridge/nightly/models/nemotron/nemotron3-nano-4b.html)
 - [Guia do Nemotron 3 na Unsloth](https://unsloth.ai/docs/models/tutorials/nemotron-3)
