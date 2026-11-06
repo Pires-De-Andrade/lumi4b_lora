@@ -8,3 +8,4 @@ comparacao.md
 tools/
 runs/
 .micromamba/
+.pytest_cache/

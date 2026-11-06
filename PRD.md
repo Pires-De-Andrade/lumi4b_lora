@@ -144,7 +144,7 @@ A mistura inicial abaixo é uma hipótese, testada contra 100% de raciocínio na
 
 ## Requisitos de treino
 
-Os dois métodos usam os mesmos módulos-alvo e diferem apenas no `use_dora`. O LoRA é a referência; o DoRA testa se há ganho em rank baixo, com mais custo de tempo.
+Os dois métodos usam os mesmos módulos-alvo e diferem apenas no `use_dora`, com um patch local no DoRA (abaixo). O LoRA é a referência; o DoRA testa se há ganho em rank baixo, com mais custo de tempo.
 
 | Braço | Pesos-base | `use_dora` | Kernel Mamba | Papel |
 | --- | --- | --- | --- | --- |
@@ -152,6 +152,12 @@ Os dois métodos usam os mesmos módulos-alvo e diferem apenas no `use_dora`. O 
 | DoRA | BF16 | `True` | Kernels permitidos | Testar ganho em rank baixo |
 
 Os kernels são os pacotes `mamba-ssm` e `causal-conv1d`. O código do Lumi só ativa o caminho rápido com os dois instalados e, sem eles, cai no caminho PyTorch apenas com um aviso.
+
+### DoRA e as linhas zeradas da `in_proj`
+
+A `in_proj` do Lumi tem 213 linhas com pesos exatamente zero (média de cerca de 10 por camada). O DoRA do PEFT inicializa a magnitude com a norma da linha (0) e depois divide magnitude por norma, o que dá 0/0 = NaN nos logits e nos gradientes desde o primeiro passo. O LoRA não é afetado.
+
+O projeto usa o patch `src/lumi_ft/modeling/peft_patch.py`: onde a norma é exatamente 0, o divisor vale 1, e a magnitude inicial continua sendo a norma verdadeira (0). Essas linhas nascem inertes e continuam produzindo zero, como na base; as outras linhas não mudam (saída bit a bit igual, testado). Consequência para a comparação: nessas 213 linhas o DoRA não se comporta como o LoRA, que pode ativá-las. O unmerge não é suportado, e o projeto não o usa. Evidências em [discovery.md](discovery.md).
 
 ### Módulos-alvo
 
@@ -173,7 +179,13 @@ LoraConfig(
 - **`conv1d` fica de fora.** O peso também é lido direto, e o PEFT não funde convoluções com `groups > 1`.
 - **`embeddings` e `lm_head` ficam de fora.** `<think>` e `</think>` já estão no vocabulário, então o adaptador não precisa tocar neles.
 
-Esses nomes existem tanto na implementação nativa do Transformers quanto no código próprio do Lumi, usado via `auto_map`. A fase 0 ainda precisa confirmá-los com `named_modules()`.
+Os nomes foram confirmados na fase 0 com `named_modules()`: o regex casa exatamente 71 módulos nas duas implementações (21 `in_proj`, 17 `up_proj`, 17 `down_proj` e 4 de cada projeção de atenção). Os 21 `out_proj`, o `lm_head`, os `conv1d` e os embeddings ficam de fora. O código do repositório nomeia as camadas `backbone.layers.N`, e a implementação nativa `model.layers.N`; o regex vale para os dois.
+
+### Implementação do modelo
+
+**Decisão da fase 0: implementação nativa do Transformers** (`AutoModelForCausalLM` sem `trust_remote_code`). O código do repositório (`modeling_nemotron_h.py`) fica só como referência. Sem padding, as duas implementações calculam o mesmo. O código do repositório erra com padding à esquerda, que o `generate` em batch usa, e seu `generate` quebra no Transformers 5.22.2. A nativa usa os mesmos kernels e para em `<|im_end|>`. Medições, números e limites estão em [discovery.md](discovery.md).
+
+Pendente: confirmar que o modelo fundido salvo pela nativa mantém o formato de chaves esperado por quem carrega o Lumi com o código do repositório (`backbone.` contra `model.`).
 
 ### Carga e tokenizer
 
@@ -235,7 +247,7 @@ Esses conjuntos só entram na avaliação, nunca no treino. O artigo do Tucano 2
 | A-01 | Medir o Lumi v0.2 antes de treinar, nos dois modos. A referência é a baseline medida aqui, porque o harness muda a nota: o Nemotron 3 Nano 4B tem 40,93 no gráfico do CEIA e 39,63 no repositório do IFEval. |
 | A-02 | Rodar os 535 prompts do Portuguese-IFEval com o avaliador oficial e registrar a nota estrita por prompt. Passar a ele só o texto depois de `</think>`, porque a documentação do repositório não diz se a limpeza remove o traço. |
 | A-03 | Rodar MMLU PT (ensino médio e graduação), Global MMLU PT, MMMLU PT e INCLUDE PT com versão e amostra fixadas, usando as provas completas da tabela de conjuntos inferidos abaixo. Não usar `Portuguese-MMLU/*` nem as cópias em `cemig-ceia` e `bench-temp-2`: esses conjuntos têm 8.704 e 29.094 questões de teste, o que tornaria a baseline não comparável ao cartão. |
-| A-04 | Usar temperatura 0, sem exemplos no prompt, com `enable_thinking` declarado e até 4.096 tokens novos nos dois modos. Sem penalidade de repetição, exceto no IFEval, cujo padrão em Transformers é 1,2. Registrar se isso prejudica os traços. |
+| A-04 | Usar temperatura 0, sem exemplos no prompt, com `enable_thinking` declarado e até 4.096 tokens novos nos dois modos. Sem penalidade de repetição, exceto no IFEval, cujo padrão em Transformers é 1,2. Registrar se isso prejudica os traços. Gerar na implementação nativa. Mesmo em temperatura 0, mudar a composição do batch troca o top-1 em cerca de 1,6% das posições (piso de ruído BF16 medido na fase 0), então fixar o tamanho do batch e a ordem dos itens na avaliação. |
 | A-05 | Extrair a resposta só depois de `</think>`. Resposta sem `</think>` ou sem alternativa conta como erro, e a taxa de cada caso vai para o relatório. Testar a extração com casos sintéticos antes da baseline. |
 | A-06 | No GSM8K-PT, pedir a linha final `#### <número>` e usar `strict-match` como nota. Registrar também `flexible-extract`, porque o artigo do Tucano 2 descreve os dois e não diz qual está nas suas tabelas. |
 | A-07 | Calcular a diferença para a baseline com bootstrap pareado por item, dentro de cada prova: 10.000 reamostras e IC de 95% para cada nota, para a Nota de raciocínio e para o Overall. |
@@ -354,9 +366,9 @@ Os pacotes seguem a tabela abaixo.
 
 | Componente | Versão |
 | --- | --- |
-| Transformers | ≥ 5.8.1, a versão do `config.json` do Lumi |
-| PEFT | ≥ 0.20 |
-| TRL | ≥ 1.17 |
+| Transformers | ≥ 5.8.1, a versão do `config.json` do Lumi. Fixado no lock: 5.22.2 |
+| PEFT | ≥ 0.20. Fixado no lock: 0.21.2 |
+| TRL | ≥ 1.17. Fixado no lock: 1.17.1 |
 | PyTorch | 2.14.1+cu130, fixado no `pyproject.toml` e no `uv.lock`. A 2.15.0 só tem builds cu132 e cu134, acima do CUDA 13.0 do driver |
 | `nvcc` | `cuda-nvcc` 13.0.88 do conda-forge, instalado com micromamba dentro de `barros` |
 | `mamba-ssm` 2.3.2.post1 e `causal-conv1d` 1.7.0 | Só têm código-fonte no PyPI, então são compilados com o `nvcc` acima por `scripts/build_kernels.sh` e ficam fora do lockfile |
@@ -391,16 +403,16 @@ Estas regras valem para todas as fases.
 
 ### Fase 0: fundação e baseline
 
-- [ ] Criar repositório, lockfile e ambiente com Python 3.12, instalando o `nvcc` sem `sudo` e compilando `mamba-ssm` e `causal-conv1d` contra o PyTorch fixado.
-- [ ] Confirmar que `torch.cuda.is_available()` e `torch.cuda.is_bf16_supported()` são verdadeiros.
-- [ ] Confirmar que `is_fast_path_available` é verdadeiro, porque o código cai no caminho lento só com um aviso.
-- [ ] Baixar o Lumi v0.2 no commit `27b30f40` e ler `modeling_nemotron_h.py`.
-- [ ] Comparar logits do código do repositório e da implementação nativa em um batch fixo, e escolher uma.
-- [ ] Listar `named_modules()` e confirmar `TARGET_REGEX`.
-- [ ] Provar nos dois braços que todo parâmetro `lora_*` treinável recebe gradiente não nulo após 1 passo.
-- [ ] Provar que um adaptador recém-criado não altera os logits.
-- [ ] Provar que adaptador ativo e modelo fundido geram logits equivalentes.
-- [ ] Provar que a geração para em `<|im_end|>` com `eos_token_id=[2, 11]`.
+- [x] Criar repositório, lockfile e ambiente com Python 3.12, instalando o `nvcc` sem `sudo` e compilando `mamba-ssm` e `causal-conv1d` contra o PyTorch fixado.
+- [x] Confirmar que `torch.cuda.is_available()` e `torch.cuda.is_bf16_supported()` são verdadeiros.
+- [x] Confirmar que `is_fast_path_available` é verdadeiro, porque o código cai no caminho lento só com um aviso.
+- [x] Baixar o Lumi v0.2 no commit `27b30f40` e ler `modeling_nemotron_h.py`.
+- [x] Comparar logits do código do repositório e da implementação nativa em um batch fixo, e escolher uma.
+- [x] Listar `named_modules()` e confirmar `TARGET_REGEX`.
+- [x] Provar nos dois braços que todo parâmetro `lora_*` treinável recebe gradiente não nulo após 1 passo.
+- [x] Provar que um adaptador recém-criado não altera os logits.
+- [x] Provar que adaptador ativo e modelo fundido geram logits equivalentes.
+- [x] Provar que a geração para em `<|im_end|>` com `eos_token_id=[2, 11]`.
 - [ ] Testar a extração de resposta conforme A-05 e A-06.
 - [ ] Medir pico de memória, maior batch viável e tokens por segundo por braço, conforme A-14, e fixar o batch do treino no pior caso (DoRA, `r=32`, sequências mais longas).
 - [ ] Medir o maior batch viável na geração, no pior caso de 4.096 tokens novos, porque o cache cresce com a resposta.
@@ -466,7 +478,8 @@ O maior risco é de resultado: o Tucano 3.7B Think usou os mesmos dados e só ga
 | --- | --- | --- |
 | Traços curtos e sem checagem limitam o ganho | Modelo imita o formato sem acertar mais | Gate da fase 2 antes da matriz completa; sem ganho, decidir sobre novos dados |
 | Dados concentrados em matemática | Ganho só no GSM8K-PT | Relatório por prova; H3 explícita |
-| Código do Lumi diverge do nativo | Alvos errados ou adaptador sem efeito | Testes de gradiente e equivalência da fase 0 |
+| Código do Lumi diverge do nativo | Alvos errados, logits errados ou geração quebrada | Resolvido na fase 0: as duas calculam o mesmo sem padding; o código do repositório erra com padding à esquerda e quebra no `generate`, então o projeto usa a nativa |
+| Linhas zeradas na `in_proj` quebram o DoRA | NaN nos logits e nos gradientes | Patch local do DoRA, testado em CPU e no modelo; ver seção própria |
 | Kernels não compilam (sem `nvcc` nativo e sem `sudo`) | Treino no caminho lento | Rota do conda-forge provada na fase 0 (compilação e importação). Falta confirmar o caminho rápido no modelo; se falhar, usar o caminho PyTorch nos dois braços |
 | 24 GiB não bastam para o batch desejado | Falta de memória ou treino mais lento | Batch físico medido no pior caso, acumulação de gradiente e, se preciso, calcular `lm_head` só nas posições com label |
 | Outro usuário ocupa a GPU | Falta de memória, execução interrompida ou tempo distorcido | Regra 9, processos registrados em A-14, checkpoint por época e respostas salvas por item |
