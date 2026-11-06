@@ -357,13 +357,17 @@ Os pacotes seguem a tabela abaixo.
 | Transformers | ≥ 5.8.1, a versão do `config.json` do Lumi |
 | PEFT | ≥ 0.20 |
 | TRL | ≥ 1.17 |
-| PyTorch | Fixar na fase 0. Candidata: 2.14.1+cu130; a 2.15.0 só tem builds cu132 e cu134, acima do CUDA 13.0 do driver |
-| `nvcc` | `cuda-nvcc` 13.0 do conda-forge, instalado com micromamba dentro de `barros` |
-| `mamba-ssm` e `causal-conv1d` | Só têm código-fonte no PyPI, então precisam compilar com `nvcc`, que a máquina não tem |
+| PyTorch | 2.14.1+cu130, fixado no `pyproject.toml` e no `uv.lock`. A 2.15.0 só tem builds cu132 e cu134, acima do CUDA 13.0 do driver |
+| `nvcc` | `cuda-nvcc` 13.0.88 do conda-forge, instalado com micromamba dentro de `barros` |
+| `mamba-ssm` 2.3.2.post1 e `causal-conv1d` 1.7.0 | Só têm código-fonte no PyPI, então são compilados com o `nvcc` acima por `scripts/build_kernels.sh` e ficam fora do lockfile |
 
-Os `setup.py` dos dois kernels usam `CUDAExtension` e leem a versão do `nvcc`. A ordem importa: instalar o PyTorch primeiro e compilar com `--no-build-isolation`, para os kernels não serem compilados contra outro PyTorch. Essa rota ainda não foi executada, e a fase 0 precisa prová-la.
+Os `setup.py` dos dois kernels usam `CUDAExtension` e leem a versão do `nvcc`. A ordem importa: instalar o PyTorch primeiro e compilar com `--no-build-isolation`, para os kernels não serem compilados contra outro PyTorch.
 
-O `env.sh` define `CUDA_HOME` e `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`, para reduzir a fragmentação com sequências de tamanhos diferentes.
+A rota foi executada na fase 0 e funcionou, com duas correções. O `mamba-ssm` compila com `-std=c++17`, mas os headers do PyTorch 2.14 exigem C++20 (o g++ 11 da máquina basta). E o `setup.py` dele gera código para 9 arquiteturas de GPU, então a cópia local patchada gera só a sm_89. O patch está em `scripts/patches/mamba-ssm-sm89-cxx20.patch`. O binário só roda em GPUs sm_89 (RTX 4090, L40, RTX 6000 Ada); em outra GPU, é preciso ajustar o patch e recompilar. O `causal-conv1d` foi compilado sem patch, para todas as arquiteturas. Os dois módulos importam e rodaram na GPU, mas `is_fast_path_available` no modelo ainda não foi confirmado.
+
+O `env.sh` define `CUDA_HOME`, `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`, para reduzir a fragmentação com sequências de tamanhos diferentes, e `UV_NO_SYNC=1`, para o `uv run` não remover os kernels, que não estão no lockfile. Para alinhar o ambiente ao lock, usar `uv sync --frozen --inexact`.
+
+Jobs longos rodam em tmux, desacoplados do terminal, com `scripts/detach.sh` (opção `--gpu` recusa lançar se a GPU estiver ocupada).
 
 Cada execução grava em `runs/<id>/` o YAML resolvido, o commit, a seed, o hash dos dados, as métricas e o adaptador.
 
@@ -463,7 +467,7 @@ O maior risco é de resultado: o Tucano 3.7B Think usou os mesmos dados e só ga
 | Traços curtos e sem checagem limitam o ganho | Modelo imita o formato sem acertar mais | Gate da fase 2 antes da matriz completa; sem ganho, decidir sobre novos dados |
 | Dados concentrados em matemática | Ganho só no GSM8K-PT | Relatório por prova; H3 explícita |
 | Código do Lumi diverge do nativo | Alvos errados ou adaptador sem efeito | Testes de gradiente e equivalência da fase 0 |
-| Kernels não compilam (sem `nvcc` nativo e sem `sudo`) | Treino no caminho lento | Provar a rota do conda-forge na fase 0 e, se falhar, pedir o CUDA Toolkit ao administrador ou usar o caminho PyTorch nos dois braços |
+| Kernels não compilam (sem `nvcc` nativo e sem `sudo`) | Treino no caminho lento | Rota do conda-forge provada na fase 0 (compilação e importação). Falta confirmar o caminho rápido no modelo; se falhar, usar o caminho PyTorch nos dois braços |
 | 24 GiB não bastam para o batch desejado | Falta de memória ou treino mais lento | Batch físico medido no pior caso, acumulação de gradiente e, se preciso, calcular `lm_head` só nas posições com label |
 | Outro usuário ocupa a GPU | Falta de memória, execução interrompida ou tempo distorcido | Regra 9, processos registrados em A-14, checkpoint por época e respostas salvas por item |
 | Modo sem raciocínio regride | Modelo fundido piora o uso atual | Parcela de 25%, teste da mistura e trava do critério de vitória |

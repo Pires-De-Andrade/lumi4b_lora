@@ -1,0 +1,35 @@
+[project]
+name = "lumi-ft"
+version = "0.1.0"
+description = "SFT do Lumi-4B com LoRA/DoRA para raciocínio (ver PRD.md)"
+requires-python = ">=3.12"
+dependencies = [
+    "torch==2.14.1",
+    "transformers>=5.8.1",
+    "peft>=0.20",
+    "trl>=1.17",
+    "accelerate",
+    "datasets",
+    "numpy",
+    # necessárias para compilar mamba-ssm e causal-conv1d (ver scripts/build_kernels.sh)
+    "einops",
+    "ninja",
+    "packaging",
+    "wheel",
+    "setuptools<80",
+]
+
+# mamba-ssm e causal-conv1d NÃO ficam aqui: só têm código-fonte, precisam de nvcc
+# e de um patch local. São instalados por scripts/build_kernels.sh.
+
+[tool.uv]
+package = false
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }

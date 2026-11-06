@@ -26,7 +26,9 @@ runner="$proj/runs/jobs/$name.run.sh"
 cat > "$runner" <<EOF
 #!/usr/bin/env bash
 cd '$proj' && source env.sh
-{ $*; } 2>&1 | tee -a '$log'
+{
+$*
+} 2>&1 | tee -a '$log'
 echo \${PIPESTATUS[0]} > '$ex'
 EOF
 tmux new-session -d -s "$name" "bash '$runner'"

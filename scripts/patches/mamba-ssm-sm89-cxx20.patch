@@ -1,0 +1,59 @@
+--- a/setup.py
++++ b/setup.py
+@@ -178,27 +178,8 @@
+         if bare_metal_version.major != torch_cuda_version.major:
+             os.environ["TORCH_CUDA_ARCH_LIST"] = ""
+ 
+-        cc_flag.append("-gencode")
+-        cc_flag.append("arch=compute_75,code=sm_75")
+-        cc_flag.append("-gencode")
+-        cc_flag.append("arch=compute_80,code=sm_80")
+-        cc_flag.append("-gencode")
+-        cc_flag.append("arch=compute_87,code=sm_87")
+-        if bare_metal_version >= Version("11.8"):
+-            cc_flag.append("-gencode")
+-            cc_flag.append("arch=compute_90,code=sm_90")
+-        if bare_metal_version >= Version("12.8"):
+-            cc_flag.append("-gencode")
+-            cc_flag.append("arch=compute_100,code=sm_100")
+-            cc_flag.append("-gencode")
+-            cc_flag.append("arch=compute_120,code=sm_120")
+-        if bare_metal_version >= Version("13.0"):
+-            cc_flag.append("-gencode")
+-            cc_flag.append("arch=compute_103,code=sm_103")
+-            cc_flag.append("-gencode")
+-            cc_flag.append("arch=compute_110,code=sm_110")
+-            cc_flag.append("-gencode")
+-            cc_flag.append("arch=compute_121,code=sm_121")
++        # LOCAL PATCH: só a RTX 4090 (sm_89); o original compila 9 arquiteturas
++        cc_flag += ["-gencode", "arch=compute_89,code=sm_89"]
+ 
+ 
+     # HACK: The compiler flag -D_GLIBCXX_USE_CXX11_ABI is set to be the same as
+@@ -210,10 +191,10 @@
+     if HIP_BUILD:
+ 
+         extra_compile_args = {
+-            "cxx": ["-O3", "-std=c++17"],
++            "cxx": ["-O3", "-std=c++20"],
+             "nvcc": [
+                 "-O3",
+-                "-std=c++17",
++                "-std=c++20",
+                 f"--offload-arch={os.getenv('HIP_ARCHITECTURES', 'native')}",
+                 "-U__CUDA_NO_HALF_OPERATORS__",
+                 "-U__CUDA_NO_HALF_CONVERSIONS__",
+@@ -223,11 +204,11 @@
+         }
+     else:
+         extra_compile_args = {
+-            "cxx": ["-O3", "-std=c++17"],
++            "cxx": ["-O3", "-std=c++20"],
+             "nvcc": append_nvcc_threads(
+                 [
+                     "-O3",
+-                    "-std=c++17",
++                    "-std=c++20",
+                     "-U__CUDA_NO_HALF_OPERATORS__",
+                     "-U__CUDA_NO_HALF_CONVERSIONS__",
+                     "-U__CUDA_NO_BFLOAT16_OPERATORS__",

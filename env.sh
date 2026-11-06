@@ -18,3 +18,5 @@ if [ -d "$CUDA_HOME/targets/x86_64-linux" ]; then
   export LIBRARY_PATH="$CUDA_HOME/targets/x86_64-linux/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
 fi
 if [ -d "$PROJ/.venv" ]; then source "$PROJ/.venv/bin/activate"; fi
+# evita que "uv run" sincronize e remova mamba-ssm/causal-conv1d, que ficam fora do lockfile
+export UV_NO_SYNC=1
