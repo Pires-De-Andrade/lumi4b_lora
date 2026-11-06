@@ -87,7 +87,7 @@ Este projeto cobre apenas um SFT por adaptador sobre os pesos do Lumi-4B, compar
 
 **Fora do escopo**
 
-- QLoRA e QDoRA: nesta máquina a memória não é limite, e a quantização não promete ganho de qualidade.
+- QLoRA e QDoRA: os pesos em BF16 cabem na RTX 4090, e a quantização não promete ganho de qualidade. Se a memória apertar, a saída é reduzir o batch físico e acumular gradientes.
 - APO, RL e RLVR. São os próximos passos naturais se o SFT não bastar, e cada um pede outro PRD.
 - Gerar traços novos. Se a fase 2 mostrar que os dados limitam o resultado, isso vira outro PRD.
 - Melhorar o IFEval: aqui ele é só uma trava contra regressão.
@@ -179,7 +179,8 @@ Esses nomes existem tanto na implementação nativa do Transformers quanto no c�
 
 - `eos_token_id=[2, 11]` em toda geração. Sem isso, o `generate` não para em `<|im_end|>`, porque as configs do modelo só listam o id 2.
 - `pad_token="<unk>"` (id 0, o `pad_token_id` do `config.json`). O `tokenizer_config.json` não define esse token, e usar `<|im_end|>` como padding pode mascarar o fim real do turno nos labels.
-- Pesos em BF16: cerca de 8,0 GB nos dois braços. Os logits custam cerca de 0,5 GB por 1.000 tokens no batch, antes dos gradientes (131.072 × 4 bytes por token). A fase 0 mede os valores reais.
+- Pesos em BF16: cerca de 8,0 GB nos dois braços, o que deixa cerca de 17,7 GB dos 24 GiB da GPU. Os logits custam cerca de 0,5 GB por 1.000 tokens no batch, antes dos gradientes (131.072 × 4 bytes por token), e cerca de 1 GB com o gradiente deles. Só isso esgotaria a sobra perto de 17.000 tokens por batch, contando o padding; com as ativações, o limite real é menor. A fase 0 mede os valores reais.
+- Testes que comparam dois modelos (código do repositório × nativo, adaptador × fundido) carregam um por vez e salvam os logits, porque dois modelos ocupam cerca de 16 GB antes de qualquer batch.
 
 ### Hiperparâmetros iniciais
 
@@ -191,6 +192,7 @@ Esses nomes existem tanto na implementação nativa do Transformers quanto no c�
 | Taxa de aprendizado | 1e-4, varrendo 5e-5 e 2e-4 | NVIDIA usa 1e-4 em LoRA |
 | Otimizador | AdamW com cosseno e warmup de 3% | AdamW e cosseno do Tucano 2; warmup escolhido no projeto (o Tucano 2 usa 10%) |
 | Sequência | 2.048 tokens, sem truncar | Acima do máximo de 1.000 tokens dos dados |
+| Batch | Um único batch físico e efetivo nas 18 execuções, agrupado por comprimento, com acumulação de gradiente | O físico vem do pior caso medido na fase 0 (DoRA, `r=32`, sequências mais longas), para o limite de memória não favorecer um braço |
 | Épocas | Até 3, com parada antecipada | Escolha do projeto; o Tucano 2 usou 5 |
 | Gradient checkpointing | `use_reentrant=False`, `use_cache=False` | Requisito de memória |
 
@@ -243,7 +245,7 @@ Esses conjuntos só entram na avaliação, nunca no treino. O artigo do Tucano 2
 | A-11 | Avaliar sempre o modelo fundido em BF16. |
 | A-12 | Rodar as provas de teste apenas em: Lumi (suíte e 6 notas, nos dois modos); os 2 candidatos finais (suíte nos dois modos e 6 notas sem raciocínio); e o vencedor (6 notas com raciocínio). |
 | A-13 | No vencedor, repetir a validação do GSM8K-PT com `temperature=1.0` e `top_p=0.95`, a recomendação do Nemotron para raciocínio, em 3 seeds. O resultado entra no relatório, sem afetar a seleção. |
-| A-14 | Registrar pico de memória, tempo por época e tokens por segundo em cada execução. Medir a memória com `torch.cuda.max_memory_allocated()`, porque o `nvidia-smi` não a informa nesta máquina. |
+| A-14 | Registrar pico de memória, tempo por época e tokens por segundo em cada execução. Medir a memória com `torch.cuda.max_memory_allocated()` e `max_memory_reserved()`. Registrar também os processos do `nvidia-smi` no início e no fim, porque outro usuário na GPU pode distorcer o tempo e causar falta de memória. |
 
 **Custo estimado:** um sistema com raciocínio nas 11 provas (73.095 itens, cerca de 500 tokens por resposta) gera cerca de 37 milhões de tokens, ou 5 a 10 horas a 1.000 ou 2.000 tokens por segundo. A matriz de A-12 soma cerca de 13 a 26 horas, com o modo sem raciocínio incluído. A conta é grosseira, porque o batch pode acelerar bastante, e a fase 0 mede a velocidade real.
 
@@ -290,7 +292,7 @@ Dados de SFT (reasoning filtrado + parcela sem raciocínio)
 
 ```text
 lumi-finetune/
-├── env.sh                        # caches dentro do projeto
+├── env.sh                        # caches, nvcc e alocador da GPU
 ├── pyproject.toml                # dependências com lockfile
 ├── configs/
 │   ├── base.yaml
@@ -339,9 +341,14 @@ O projeto roda na máquina abaixo, e a fase 0 prova o que depende dela.
 
 | Recurso | Valor |
 | --- | --- |
-| Máquina | NVIDIA Jetson AGX Thor, `aarch64`, 14 núcleos |
-| Memória | 122 GiB compartilhados entre CPU e GPU, sem swap |
-| Software | CUDA 13.2, driver 595.78, Python 3.12.3 |
+| GPU | NVIDIA GeForce RTX 4090, 24 GiB de VRAM (24.564 MiB), uma só |
+| CPU | Intel Core i9-14900K, `x86_64`, 24 núcleos e 32 threads |
+| Memória | 125 GiB de RAM, separados da VRAM, e 11 GiB de swap |
+| Disco | 1,0 TB livres em `/home` (3,3 TB no total) |
+| Software | Ubuntu 22.04.5, driver 580.95.05 (CUDA até 13.0), GCC 11.4, uv 0.13 |
+| Acesso | Máquina com vários usuários, sem `sudo` e sem acesso ao Docker |
+
+O Python do sistema é o 3.10.12, abaixo do 3.11 exigido pelas versões atuais de Transformers e TRL. O projeto usa o Python 3.12 gerenciado pelo uv, já instalado na máquina.
 
 Os pacotes seguem a tabela abaixo.
 
@@ -350,8 +357,13 @@ Os pacotes seguem a tabela abaixo.
 | Transformers | ≥ 5.8.1, a versão do `config.json` do Lumi |
 | PEFT | ≥ 0.20 |
 | TRL | ≥ 1.17 |
-| PyTorch | Fixar na fase 0 |
-| `mamba-ssm` e `causal-conv1d` | Só têm código-fonte no PyPI, então precisam compilar em ARM64 |
+| PyTorch | Fixar na fase 0. Candidata: 2.14.1+cu130; a 2.15.0 só tem builds cu132 e cu134, acima do CUDA 13.0 do driver |
+| `nvcc` | `cuda-nvcc` 13.0 do conda-forge, instalado com micromamba dentro de `barros` |
+| `mamba-ssm` e `causal-conv1d` | Só têm código-fonte no PyPI, então precisam compilar com `nvcc`, que a máquina não tem |
+
+Os `setup.py` dos dois kernels usam `CUDAExtension` e leem a versão do `nvcc`. A ordem importa: instalar o PyTorch primeiro e compilar com `--no-build-isolation`, para os kernels não serem compilados contra outro PyTorch. Essa rota ainda não foi executada, e a fase 0 precisa prová-la.
+
+O `env.sh` define `CUDA_HOME` e `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`, para reduzir a fragmentação com sequências de tamanhos diferentes.
 
 Cada execução grava em `runs/<id>/` o YAML resolvido, o commit, a seed, o hash dos dados, as métricas e o adaptador.
 
@@ -371,10 +383,12 @@ Estas regras valem para todas as fases.
 6. Se o código do Lumi divergir deste PRD, registrar a divergência e perguntar antes de seguir.
 7. Declarar `enable_thinking` em todo treino e avaliação, porque o padrão do template é ligado.
 8. Carregar `env.sh` antes de baixar, instalar ou executar qualquer coisa, para manter os caches dentro de `barros`.
+9. Antes de cada execução com GPU, conferir no `nvidia-smi` se ela está livre, porque a máquina é compartilhada. Nunca encerrar processos de outros usuários: se a GPU estiver ocupada, avisar e esperar.
 
 ### Fase 0: fundação e baseline
 
-- [ ] Criar repositório, lockfile e ambiente, compilando `mamba-ssm` e `causal-conv1d` para ARM64.
+- [ ] Criar repositório, lockfile e ambiente com Python 3.12, instalando o `nvcc` sem `sudo` e compilando `mamba-ssm` e `causal-conv1d` contra o PyTorch fixado.
+- [ ] Confirmar que `torch.cuda.is_available()` e `torch.cuda.is_bf16_supported()` são verdadeiros.
 - [ ] Confirmar que `is_fast_path_available` é verdadeiro, porque o código cai no caminho lento só com um aviso.
 - [ ] Baixar o Lumi v0.2 no commit `27b30f40` e ler `modeling_nemotron_h.py`.
 - [ ] Comparar logits do código do repositório e da implementação nativa em um batch fixo, e escolher uma.
@@ -384,7 +398,8 @@ Estas regras valem para todas as fases.
 - [ ] Provar que adaptador ativo e modelo fundido geram logits equivalentes.
 - [ ] Provar que a geração para em `<|im_end|>` com `eos_token_id=[2, 11]`.
 - [ ] Testar a extração de resposta conforme A-05 e A-06.
-- [ ] Medir pico de memória, maior batch viável e tokens por segundo por braço, conforme A-14.
+- [ ] Medir pico de memória, maior batch viável e tokens por segundo por braço, conforme A-14, e fixar o batch do treino no pior caso (DoRA, `r=32`, sequências mais longas).
+- [ ] Medir o maior batch viável na geração, no pior caso de 4.096 tokens novos, porque o cache cresce com a resposta.
 - [ ] Medir a baseline do Lumi nos dois modos, conforme A-01 a A-09, inclusive a forma do raciocínio.
 
 **Gate:** todos os testes passam, e a baseline sem raciocínio está a até 1 ponto do cartão ou a diferença está documentada. Se o Lumi com raciocínio já cumprir as metas de forma ou de nota, apresentar isso antes de seguir, porque o problema a resolver muda.
@@ -448,7 +463,9 @@ O maior risco é de resultado: o Tucano 3.7B Think usou os mesmos dados e só ga
 | Traços curtos e sem checagem limitam o ganho | Modelo imita o formato sem acertar mais | Gate da fase 2 antes da matriz completa; sem ganho, decidir sobre novos dados |
 | Dados concentrados em matemática | Ganho só no GSM8K-PT | Relatório por prova; H3 explícita |
 | Código do Lumi diverge do nativo | Alvos errados ou adaptador sem efeito | Testes de gradiente e equivalência da fase 0 |
-| Kernels não compilam em ARM64 | Treino no caminho lento | Medir na fase 0 e, se preciso, usar o caminho PyTorch nos dois braços |
+| Kernels não compilam (sem `nvcc` nativo e sem `sudo`) | Treino no caminho lento | Provar a rota do conda-forge na fase 0 e, se falhar, pedir o CUDA Toolkit ao administrador ou usar o caminho PyTorch nos dois braços |
+| 24 GiB não bastam para o batch desejado | Falta de memória ou treino mais lento | Batch físico medido no pior caso, acumulação de gradiente e, se preciso, calcular `lm_head` só nas posições com label |
+| Outro usuário ocupa a GPU | Falta de memória, execução interrompida ou tempo distorcido | Regra 9, processos registrados em A-14, checkpoint por época e respostas salvas por item |
 | Modo sem raciocínio regride | Modelo fundido piora o uso atual | Parcela de 25%, teste da mistura e trava do critério de vitória |
 | Traço não fecha ou entra em loop | Resposta perdida e custo alto | D-08, parada correta, limite de 4.096 tokens e métricas de A-08 |
 | Traço em inglês | Perde o objetivo de raciocinar em português | D-09, A-08 e gate da fase 2; ver decisão em aberto |
@@ -468,7 +485,7 @@ O maior risco é de resultado: o Tucano 3.7B Think usou os mesmos dados e só ga
 
 ### Fontes
 
-Nesta versão, o `chat_template.jinja` e as configs do Lumi foram lidos por completo, e o `modeling_nemotron_h.py` só nos trechos de módulos e kernels. Do artigo do Tucano 2, foram lidas as seções sobre dados, pós-treino e avaliação, com as tabelas dos modelos Think. Os traços foram avaliados só em amostras pequenas, sem revisão sistemática.
+Nesta versão, o `chat_template.jinja` e as configs do Lumi foram lidos por completo, e o `modeling_nemotron_h.py` só nos trechos de módulos e kernels. Do artigo do Tucano 2, foram lidas as seções sobre dados, pós-treino e avaliação, com as tabelas dos modelos Think. Os traços foram avaliados só em amostras pequenas, sem revisão sistemática. Na adaptação à RTX 4090, os dados da máquina vieram dela própria; os `setup.py` de `mamba-ssm` 2.3.2.post1 e `causal-conv1d` 1.7.0 foram lidos sem executar, e as versões vieram do PyPI, do índice do PyTorch e do conda-forge. Nada foi instalado nem medido na GPU.
 
 - [Cartão do CEIA Lumi-4B](https://huggingface.co/ceia-br/lumi-4b), incluindo a [versão antiga](https://huggingface.co/ceia-br/lumi-4b/blob/1c8928e1/README.md) com o MMLU-ProX PT
 - [Cartão do Nemotron 3 Nano 4B](https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16)
