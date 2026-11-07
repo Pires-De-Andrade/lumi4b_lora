@@ -33,6 +33,7 @@ def main() -> None:
     ap.add_argument("--tasks", required=True)
     ap.add_argument("--root", default="runs/eval")
     ap.add_argument("--key", default="strict_ok", choices=["strict_ok", "flexible_ok"])
+    ap.add_argument("--only-ids", default="", help="json com a lista de ids a considerar (ex.: data/val_gsm8k_clean_ids.json); vale só para tarefas gsm8k_val")
     a = ap.parse_args()
     lines = [f"# {a.a} contra {', '.join(a.b)} (bootstrap pareado, {N_BOOT} reamostras, IC 95%, nota = {a.key})\n",
              "| Tarefa | n | " + a.a + " | referência | referência (nota) | diferença | IC 95% | IC acima de 0 |", "| --- | --- | --- | --- | --- | --- | --- | --- |"]
@@ -42,6 +43,9 @@ def main() -> None:
             B = load(spec, task, a.root)
             ids = sorted(set(A) & set(B))
             assert len(ids) == len(A) == len(B), f"{task}: ids diferentes entre {a.a} e {spec}"
+            if a.only_ids and task == "gsm8k_val":
+                keep = set(json.loads(Path(a.only_ids).read_text()))
+                ids = [i for i in ids if i in keep]
             xa = [int(A[i][a.key]) for i in ids]
             xb = [int(B[i][a.key]) for i in ids]
             diff, lo, hi = paired_bootstrap(xa, xb)

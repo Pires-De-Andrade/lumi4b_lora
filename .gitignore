@@ -9,3 +9,8 @@ tools/
 runs/
 .micromamba/
 .pytest_cache/
+/handoff/thor/data/
+/handoff/thor/out/
+/handoff/thor/.venv-gen/
+/handoff/*.tar.gz
+/handoff/thor/*.tar.gz

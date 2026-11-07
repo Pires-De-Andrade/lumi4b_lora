@@ -1,0 +1,10 @@
+{
+ "val_total": 1000,
+ "clean": 676,
+ "duplicates_removed": 324,
+ "j_min": 0.3,
+ "sources_n": {
+  "gv_math": 45597,
+  "adalberto": 5619
+ }
+}

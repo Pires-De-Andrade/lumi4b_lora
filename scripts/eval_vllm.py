@@ -35,6 +35,8 @@ def main() -> None:
     ap.add_argument("--model", default=MODEL_ID, help="id do Hub (usa a revisão fixada) ou pasta com o modelo fundido")
     ap.add_argument("--tasks", default="validation")
     ap.add_argument("--modes", default="thinking,nothinking")
+    ap.add_argument("--prefill", default="", help="começo forçado do raciocínio (só no modo thinking); entra na saída pontuada")
+    ap.add_argument("--extra", default="", help="frase acrescentada ao fim do prompt do usuário (ex.: pedir raciocínio em português)")
     ap.add_argument("--limit", type=int, default=0, help="só os N primeiros itens de cada tarefa (smoke)")
     ap.add_argument("--max-new", type=int, default=G.MAX_NEW_TOKENS)
     ap.add_argument("--max-seqs", type=int, default=128)
@@ -60,12 +62,13 @@ def main() -> None:
     llm = LLM(model=a.model, dtype="bfloat16", max_model_len=a.max_len, gpu_memory_utilization=a.mem, max_num_seqs=a.max_seqs,
               enable_prefix_caching=True, seed=0, generation_config="vllm", **kw)
     summary["_engine"] = {"model": a.model, "init_seconds": round(time.time() - t0, 1), "max_num_seqs": a.max_seqs,
-                          "max_len": a.max_len, "decoding": "greedy, 4096 tokens, stop_token_ids=[2, 11], repetition_penalty=1.0"}
+                          "max_len": a.max_len, "prefill": a.prefill, "extra": a.extra, "decoding": "greedy, 4096 tokens, stop_token_ids=[2, 11], repetition_penalty=1.0"}
     loaded: dict[str, T.Task] = {}
     for tname, mode in todo:
         thinking = MODES[mode]
         task = loaded.get(tname) or loaded.setdefault(tname, T.get_task(tname, a.limit))
-        prompts = [G.render_prompt(tok, task.prompt(it), thinking=thinking) for it in task.items]
+        pre = a.prefill if thinking else ""
+        prompts = [G.render_prompt(tok, task.prompt(it) + (f"\n\n{a.extra}" if a.extra else ""), thinking=thinking) + pre for it in task.items]
         n_prompt = [len(tok(p, add_special_tokens=False)["input_ids"]) for p in prompts]
         params = [SamplingParams(temperature=0.0, max_tokens=max(1, min(a.max_new, a.max_len - n)), stop_token_ids=EOS_IDS,
                                  skip_special_tokens=False) for n in n_prompt]
@@ -79,7 +82,7 @@ def main() -> None:
             ids = list(c.token_ids)
             while ids and ids[-1] in EOS_IDS:
                 ids.pop()
-            gens.append({"id": it["id"], "n_prompt": len(o.prompt_token_ids), "text": c.text, "n_gen": len(ids),
+            gens.append({"id": it["id"], "n_prompt": len(o.prompt_token_ids), "text": pre + c.text, "n_gen": len(ids),
                          "finished": c.finish_reason == "stop", "finish_reason": c.finish_reason})
         rows = [task.score(g, it, thinking) for g, it in zip(gens, task.items)]
         (out / f"{tname}_{mode}.jsonl").write_text("\n".join(json.dumps(g, ensure_ascii=False) for g in gens) + "\n")

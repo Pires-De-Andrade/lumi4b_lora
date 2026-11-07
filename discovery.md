@@ -333,16 +333,74 @@ LoRA `r=16`, lr 1e-4, 1 época nos 15.544 exemplos de viabilidade (10.000 com ra
 - Capacidade: com a leitura mais generosa (qualquer letra em qualquer lugar do texto), a múltipla escolha com raciocínio é 55,1% contra 69,6% do Lumi, e sem raciocínio 56,6% contra 63,9%. No GSM8K (flexível), 80,3% contra 85,7% com raciocínio e 77,6% contra 81,5% sem. Ou seja, há perda real de acerto, maior fora de matemática. O treino tem 84% de `math_reasoning`, traços mais curtos que os do Lumi (GSM8K de validação: mediana de 285 tokens contra 358 do Lumi no GSM8K de teste, média de 530), e, no dataset, 4.007 dos 12.182 exemplos `reasoning` usam prompts de `harmfull-reasoning` (as amostras lidas são recusas). É o risco que o PRD já registrou (o Tucano 3.7B Think, com os mesmos dados, ganhou 2,89 pontos no GSM8K-PT e perdeu nas outras provas).
 - Limites desta leitura: uma execução, 1 época, uma taxa; não separei quanto da perda vem do idioma do traço, do comprimento menor ou da deriva do LoRA sobre dados diferentes da distribuição do Lumi. Li ~5 saídas, não 50 (item da fase 2 não cumprido).
 
+### Teste de prefill e de instrução no Lumi original (validação, só com raciocínio)
+
+Para saber se o Lumi raciocina em português sem treino. `scripts/eval_vllm.py --prefill` força o começo do traço; `--extra` acrescenta uma frase ao prompt. Dados em `runs/eval/base_ptprefill/` e `runs/eval/base_ptinstr/`.
+
+| | Lumi | + prefill "Vou raciocinar em português." | + "Pense e raciocine em português." no prompt |
+| --- | --- | --- | --- |
+| GSM8K val, nota estrita | 85,7% | 48,1% | 85,2% |
+| Múltipla escolha val, nota estrita | 69,6% | 61,3% | 70,1% |
+| Idioma do traço (GSM8K) | inglês 954/954 | português 570/570 (nos que fecham) | inglês 956/957 |
+| Fecha `</think>` e responde (GSM8K / múltipla escolha) | 95,4% / 86,2% | 57,0% / 79,7% | 95,7% / 87,8% |
+
+- **A instrução no prompt não muda o idioma do traço:** o Lumi segue pensando em inglês, e por isso a nota não muda.
+- **O prefill muda o idioma, mas quebra a estrutura.** No GSM8K, 361 das 1.000 saídas terminaram sozinhas **sem fechar o `</think>`**, com a solução e o `#### N` escritos dentro do traço (329 delas certas), e 69 foram truncadas. Das 570 que fecham, 481 estão certas (84,4%). Lendo o texto inteiro, inclusive o que está dentro do traço, o acerto é **81,3%** (o Lumi: 85,7%): raciocinar em português preservou quase toda a capacidade, e o que se perde é o formato. Na múltipla escolha, 18,4% truncam e 20% não fecham o traço.
+- **Uma execução, uma frase de prefill**; não testei outras frases. A leitura "texto inteiro" é minha e só serve para diagnóstico, não é a nota do PRD.
+
 **Opções que o PRD prevê (gate):** mais dados e ajustes (a varredura de taxa e mistura da matriz reduzida), traços gerados e verificados (outro PRD), ou encerrar.
 
-## 16. Pendências
+## 16. Contaminação da validação e experimento com o dataset do adalberto
+
+### A validação do GSM8K estava contaminada (o teste não)
+
+O filtro de 8-gramas só pega a mesma tradução. Os dados do GigaVerbo e o dataset do adalberto trazem problemas do GSM8K `train` em **outras traduções**. Comparando a assinatura dos números do enunciado (`teacher.number_signature`) e a sobreposição de palavras (Jaccard):
+
+| | Mesma assinatura de números | Jaccard ≥ 0,3 (duplicata provável) |
+| --- | --- | --- |
+| Validação do GSM8K (1.000) contra o treino de matemática do GigaVerbo | 599 | ~325 (112 com ≥ 0,5) |
+| **Teste** do GSM8K-PT (1.295) contra todo o treino | 473 | **0** (todas < 0,3: coincidência de números) |
+
+- **O teste está limpo**; a validação não. `scripts/clean_validation.py` gera o subconjunto limpo (676 itens, `data/val_gsm8k_clean_ids.json`, contra o GigaVerbo e o adalberto); o `compare_runs.py --only-ids` o usa.
+- **Efeito no viab:** na validação limpa, 67,2% (estrito, com raciocínio) contra 71,5% na completa; o Lumi, 81,7% contra 85,7%. A contaminação inflava o candidato em ~4 pontos, e a conclusão da fase 2 não muda.
+- O pacote da Thor (`handoff/thor`) foi gerado antes disso. Os problemas dele não têm 8-grama da validação, mas podem ter duplicatas por tradução; `scripts/prepare_thor.py` as tira quando o resultado voltar.
+
+### Dataset `adalberto-temp/gsm8k-sft-thinking-pt`
+
+56.296 respostas do Qwen3-30B-A3B-Thinking para 7.225 problemas do GSM8K `train` (mediana de 8 respostas por problema, 404 palavras por resposta), **sem licença declarada** (só para experimento). Com o prompt dele, o Qwen já pensa em português. Só 207 problemas casam exatamente com o GSM8K-PT `train`; 805 dos 1.000 itens da nossa validação têm 8-grama em comum com ele.
+
+- **Seleção** (`scripts/prepare_adalberto.py`): problema com resposta majoritária em ≥ 75% das respostas; resposta igual à maioria (verificação por concordância, não por gabarito); um único `</think>`; traço em português (heurística); última linha `Resposta final: X` trocada por `#### X`. Fora, por contaminação: 81 problemas com 8-grama do teste, 807 com 8-grama da validação e 706 com os mesmos números de um item da validação. Sobram 5.627 problemas e 41.143 respostas boas (2.678 descartadas por traço fora do português).
+- **Treino** (`scripts/build_teacher_dataset.py`): prompt = o da avaliação (instrução `#### N`), sem system. 5.842 exemplos com raciocínio (4,6 M de tokens; o limite de 1.024 tokens descartou 9.680 candidatos, 34%), 3.000 sem raciocínio no mesmo formato (1,5 M) e as 5.544 linhas sem raciocínio do GigaVerbo da viabilidade: 14.386 linhas, 7,7 M de tokens. LoRA `r=16`, lr 1e-4, 1 época, 450 passos, 25,7 min, loss de treino 0,42 → 0,21.
+
+| Validação | Lumi | Adalberto | Diferença (IC 95%) |
+| --- | --- | --- | --- |
+| GSM8K limpo (676), com raciocínio | 81,7% | **83,3%** | +1,6 (−1,0, +4,3) |
+| GSM8K limpo, com raciocínio, contra o Lumi **sem** raciocínio (77,2%) | | | **+6,1 (+3,4, +8,7)** |
+| GSM8K limpo, sem raciocínio | 77,2% | 79,3% | +2,1 (−0,7, +4,9) |
+| Múltipla escolha (385), com raciocínio | 69,6% | 62,3% | **−7,3 (−11,7, −2,9)** |
+| Múltipla escolha, sem raciocínio (estrita) | 63,9% | 58,2% | **−5,7 (−10,6, −0,8)** |
+| Múltipla escolha, sem raciocínio (flexível) | 63,4% | 63,9% | igual |
+| Traço em português (GSM8K / múltipla escolha) | 0% | 968 de 973 / 332 de 334 | |
+| Fecha `</think>` e responde (GSM8K / múltipla escolha) | 95,4% / 86,2% | 97,3% / 86,8% | |
+| Truncadas em 4.096 (GSM8K / múltipla escolha) | 4,7% / 13,8% | 3,2% / 13,8% | |
+
+- **Em matemática funcionou:** traço em português e nota igual ou melhor que a do Lumi nos dois modos; o modo com raciocínio supera o Lumi sem raciocínio com IC acima de 0 (a meta da fase 2).
+- **Fora de matemática não:** a múltipla escolha com raciocínio perde 7,3 pontos. Sem raciocínio, a perda estrita (5,7) é de formato: a nota flexível é igual à do Lumi. Os 13,8% de truncamento na múltipla escolha são os loops do Lumi, que estes dados não corrigem.
+- **Limites:** uma execução, uma taxa, 1 época; os problemas vêm do GSM8K `train` (mesma distribuição do teste, então o ganho em matemática pode ser em domínio); a licença do dataset é desconhecida; as provas de teste ainda não foram rodadas.
+
+## 17. Pacote da Thor e autodestilação do Lumi
+
+- **`handoff/thor/`:** `PLANO_THOR.md` (para o Claude Code da Thor), `gen_traces.py` (cliente de `/v1/completions`, retomável), `filter_traces.py`, `pack.sh` e 50.908 problemas embaralhados (5.612 do GSM8K-PT `train` com gabarito e 45.296 do GigaVerbo com referência fraca). Professor: Qwen3-30B-A3B-Thinking-2507, com o começo do raciocínio forçado em português. Testado só contra um servidor falso (`tests/test_thor_pkg.py`); o motor real ainda não.
+- **Autodestilação do Lumi** (`scripts/gen_selfdistill.py`, em andamento): 14.000 problemas com raciocínio (prefill "Vou raciocinar em português.", T=0,6) e 3.000 sem raciocínio, aceitando só o que fecha `</think>`, está em português e acerta a referência. Depois, `build_teacher_dataset.py`, treino e avaliação (`scripts/run_experiment.sh`).
+
+## 18. Pendências
 
 
 1. Baseline do Lumi nos dois modos (precisa de aprovação, por passar de 1 hora de GPU). Antes dela, falta escrever o harness (prompts, laço de geração em lotes ordenados, gravação por item) e um piloto para medir o comprimento das saídas.
 2. Medir um passo do `SFTTrainer` (fase 3) e carregar a entrega fundida com `trust_remote_code` (fase 5).
 3. Isolar a causa do erro de padding à esquerda no código do repositório, se for útil. Não é necessário para seguir com a nativa.
 
-## 17. Como reproduzir
+## 19. Como reproduzir
 
 ```bash
 source env.sh
