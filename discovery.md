@@ -192,13 +192,80 @@ Implementação nativa, modelo BF16 sem adaptador (o fundido tem a mesma forma),
 
   A soma dos dois lados do A-12 fica entre cerca de 43 h e 159 h, contra 13 a 26 h no PRD. A distribuição de comprimentos só sai da baseline; vale rodar primeiro um piloto de algumas centenas de itens para medi-la. Se o piloto confirmar a cauda, as saídas são ficar com esse custo, reduzir o orçamento de A-12, ou trocar o `generate` por um servidor com batching contínuo (o vLLM tem suporte a NemotronH), o que exige reinstalar e repetir a validação de equivalência da seção 5.
 
-## 12. Pendências da fase 0
+## 12. vLLM e outras otimizações
+
+Medido em 2026-11-07, motivado por prazo (projeto inteiro em 2 dias). Scripts: `scripts/install_vllm.sh`, `scripts/run_gsm8k_vllm.py`; dados em `runs/pilot_gsm8k_vllm/` e `runs/baseline_gsm8k_vllm/` (gitignored).
+
+### Instalação
+
+- **Ambiente separado `.venv-vllm`.** O vLLM 0.33.0 fixa `torch==2.14.0` e `transformers>=5.16.1,<5.21`; o `.venv` tem torch 2.14.1, transformers 5.22.2 e os kernels compilados contra ele. Instalar no `.venv` quebraria o lockfile e os kernels. O torch 2.14.0 do PyPI é CUDA 13.0.3 (`cuda-toolkit==13.0.3`), compatível com o driver 580; o vLLM depende de `nvidia-cutlass-dsl[cu13]`. Resultado: torch 2.14.0+cu130, vLLM 0.33.0, transformers 5.20.2.
+- **O vLLM aceitou o Lumi sem `trust_remote_code`** (arquitetura `NemotronH`). Usa os próprios kernels Triton de Mamba2 (`mamba_mixer2`), não o `mamba-ssm` compilado.
+- **Falha corrigida:** o kernel de amostragem do FlashInfer é compilado na hora com o `nvcc` do conda, que não tem `curand.h` (`fatal error: curand.h`). Solução: `VLLM_USE_FLASHINFER_SAMPLER=0` (amostrador do PyTorch, que serve para greedy e para temperatura/top-p).
+- **Cache de KV:** com `gpu_memory_utilization=0.88`, 12,0 GiB de cache (245 mil tokens); o estado do Mamba (~82 MiB por sequência) sai do mesmo pool, então `max_num_seqs=128` é o que cabe com folga.
+
+### Equivalência com o HF (piloto de 256 itens, mesmos prompts e pontuação)
+
+| | HF | vLLM |
+| --- | --- | --- |
+| Com raciocínio: nota estrita | 91,0% | 90,6% (6 só o HF acerta, 5 só o vLLM) |
+| Sem raciocínio: nota estrita | 87,9% | 88,3% (3 só o HF, 4 só o vLLM) |
+| Fecha `</think>`, traço em inglês | 98,4%, 252/252 | 98,0%, 251/251 |
+
+Mesmo comportamento. **Mas a saída do vLLM não é reprodutível entre execuções** (batching contínuo: a composição do lote varia com o agendamento): em duas execuções do mesmo comando, o texto é idêntico em só 23% dos itens com raciocínio e 71% sem; a nota sem raciocínio foi 88,3% e 89,4% (3 itens de 256). A diferença entre HF e vLLM tem o mesmo tamanho dessa variação entre execuções do próprio vLLM. Consequências: (1) a regra de A-04 de fixar tamanho e ordem do lote não se aplica ao vLLM; (2) o ruído por execução (~±1 ponto em n=256, bem menor nas provas grandes) não entra no IC 95% do bootstrap por item; (3) toda a avaliação, baseline incluída, deve passar pelo mesmo motor.
+
+### Velocidade
+
+| | HF (lotes de 32) | vLLM (`max_num_seqs=128`) |
+| --- | --- | --- |
+| 256 itens, com raciocínio | 527 s | 64 s (8,2×) |
+| 256 itens, sem raciocínio | 178 s | 14 s (12×; 45 s no 2º run, por um item de 4.096 tokens sozinho) |
+| 1.295 itens (GSM8K-PT inteiro), com raciocínio | ~59 min (extrapolado) | 233 s, 5,55 itens/s, 2.938 tokens/s |
+| 1.295 itens, sem raciocínio | | 116 s, 11,15 itens/s, 2.441 tokens/s |
+
+Com batching contínuo, uma saída em loop não segura as outras: o custo da cauda cai para os tokens que ela gasta. Em lotes pequenos, o retardatário ainda domina o tempo total (por isso o piloto de 256 subestima a vazão em regime).
+
+### Baseline do GSM8K-PT inteiro (vLLM, uma execução, greedy, 4.096 tokens)
+
+| | Com raciocínio | Sem raciocínio |
+| --- | --- | --- |
+| Nota estrita / flexível / leitura PT-BR | 88,88% / 88,88% / 89,42% | 85,17% / 85,17% / 85,56% |
+| Truncadas em 4.096 | 3,0% | 1,4% |
+| Fecha `</think>` e responde | 97,0% | – |
+| Idioma do traço (heurística) | en 1.255, misto 1 | – |
+| Último número do traço é a resposta | 91,6% | – |
+
+Diferença pareada (com − sem raciocínio): +3,71 pontos, IC 95% [+1,85, +5,56] (bootstrap, 10.000 reamostras): o raciocínio ajuda de forma estatisticamente clara no GSM8K-PT, ao contrário do que o piloto de 256 itens deixava em aberto. O Lumi com raciocínio, a referência a superar, está em 88,9% (no piloto de 256 saiu 91%: ruído de amostra).
+
+### Custos reprojetados (extrapolação do GSM8K; as provas de múltipla escolha podem diferir)
+
+| | HF (estimado) | vLLM |
+| --- | --- | --- |
+| Baseline do Lumi, 11 provas, dois modos (73.095 itens cada) | ~56 h | ~5,5 h (3,7 h com + 1,8 h sem) |
+| Matriz A-12 inteira | ~136 h | ~13,7 h (8,2 h + 5,5 h) |
+
+### Treino sem gradient checkpointing (medido com `measure_train.py --ckpt none`)
+
+| Braço | Batch (× 1.024 tokens) | Pico | Tokens/s | Com checkpointing |
+| --- | --- | --- | --- | --- |
+| LoRA r=16 | 1 | 12,7 GiB | 6.049 | 4.504 |
+| LoRA r=16 | 2 | 17,8 GiB | 5.785 | 4.304 |
+| LoRA r=16 | 3 | falta de memória | | |
+| DoRA r=16 | 1 | 15,3 GiB | 2.485 | 1.541 |
+| DoRA r=16 | 2 | falta de memória | | |
+
++34% no LoRA (batch 2) e +62% no DoRA (batch 1). O batch físico diferente entre os braços não muda a otimização se o batch efetivo for o mesmo, com acumulação de gradiente. Uma época completa (46,4 M de tokens): LoRA 2,2 h, DoRA 5,2 h. A matriz de 18 execuções do PRD (3 épocas, sem parada antecipada) cairia de ~105 h para ~88 h (LoRA 32 h + DoRA 56 h), ainda longe de caber em 2 dias.
+
+### Não testado
+
+Fused cross-entropy (Liger) para liberar memória dos logits e permitir batch maior; `torch.compile`; empacotamento de sequências; FP8 (treino ou pesos no vLLM, que mudaria a numérica contra o BF16 de A-11); ajuste fino de `max_num_seqs` e `gpu_memory_utilization`; vLLM com adaptador LoRA sem fundir. O modelo fundido para o vLLM precisa do `config.json` original (a seção 10 mostra que o salvo pela nativa difere).
+
+## 13. Pendências da fase 0
 
 1. Baseline do Lumi nos dois modos (precisa de aprovação, por passar de 1 hora de GPU). Antes dela, falta escrever o harness (prompts, laço de geração em lotes ordenados, gravação por item) e um piloto para medir o comprimento das saídas.
 2. Medir um passo do `SFTTrainer` (fase 3) e carregar a entrega fundida com `trust_remote_code` (fase 5).
 3. Isolar a causa do erro de padding à esquerda no código do repositório, se for útil. Não é necessário para seguir com a nativa.
 
-## 13. Como reproduzir
+## 14. Como reproduzir
 
 ```bash
 source env.sh
@@ -209,6 +276,10 @@ PYTHONPATH=src python scripts/diag_impls.py    # sensibilidade ao padding
 scripts/detach.sh merged-keys PYTHONPATH=src python scripts/check_merged_keys.py   # formato de chaves do fundido (CPU)
 scripts/detach.sh --gpu measure-train PYTHONPATH=src python scripts/measure_train.py       # ~5 min
 scripts/detach.sh --gpu measure-gen PYTHONPATH=src python scripts/measure_generate.py     # ~5 min; outros comprimentos: --prompt-len 512 --ladder ...
+scripts/detach.sh --gpu pilot-gsm8k PYTHONPATH=src python scripts/run_gsm8k.py --n 256 --out runs/pilot_gsm8k   # HF, ~12 min
+scripts/detach.sh install-vllm scripts/install_vllm.sh                                      # cria .venv-vllm
+scripts/detach.sh --gpu gsm8k-vllm "VLLM_USE_FLASHINFER_SAMPLER=0 PYTHONPATH=src .venv-vllm/bin/python scripts/run_gsm8k_vllm.py --n 0 --out runs/baseline_gsm8k_vllm"   # ~6 min
+PYTHONPATH=src python scripts/chat.py                                                       # REPL para conversar com o Lumi
 ```
 
 `LUMI_IMPL=remote` roda a suíte no código do repositório; nesse caso o teste de geração falha, como descrito na seção 3.

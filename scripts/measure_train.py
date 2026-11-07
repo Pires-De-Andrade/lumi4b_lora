@@ -56,6 +56,7 @@ def main() -> None:
     ap.add_argument("--lengths", default="1024,2048")
     ap.add_argument("--ladder", default="1,2,3,4,6,8,12,16,24,32")
     ap.add_argument("--steps", type=int, default=3)
+    ap.add_argument("--ckpt", default="full", choices=["full", "none"], help="gradient checkpointing (padrão: full, como no PRD)")
     ap.add_argument("--out", default="runs/phase0/train_resources.jsonl")
     a = ap.parse_args()
     out = Path(a.out)
@@ -72,7 +73,8 @@ def main() -> None:
             continue
         model = load_model("native")
         model.config.use_cache = False
-        model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+        if a.ckpt == "full":
+            model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
         pm = add_adapter(model, r=r, use_dora=(arm == "dora"))
         pm.train()
         params = [p for p in pm.parameters() if p.requires_grad]
@@ -87,7 +89,7 @@ def main() -> None:
                     continue
                 if oom:
                     break
-                row = {"arm": arm, "r": r, "L": L, "b": b, "tokens": b * L, "trainable_params": n_train,
+                row = {"arm": arm, "r": r, "L": L, "b": b, "tokens": b * L, "ckpt": a.ckpt, "trainable_params": n_train,
                        "adapter_dtypes": dtypes}
                 try:
                     row |= one_config(pm, params, b, L, a.steps, seed=0)

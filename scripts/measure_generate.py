@@ -21,7 +21,9 @@ from lumi_ft import gpu
 from lumi_ft.modeling.load import EOS_IDS, free_gpu, load_model, load_tokenizer
 
 
-def build_prompts(tok, b: int, prompt_len: int, seed: int = 0) -> torch.Tensor:
+def build_prompts(tok, b: int, prompt_len: int, seed: int = 0, ragged: float = 0.0):
+    """Devolve (ids, mask). Com `ragged` > 0, o corpo de cada prompt perde até essa fração dos tokens e o
+    lote é preenchido à esquerda com id 0 e máscara 0, como na avaliação real."""
     marker = "@@"
     templ = tok.apply_chat_template([{"role": "user", "content": marker}], tokenize=False,
                                     add_generation_prompt=True, enable_thinking=True)
@@ -34,11 +36,20 @@ def build_prompts(tok, b: int, prompt_len: int, seed: int = 0) -> torch.Tensor:
     body = torch.randint(1000, 100000, (b, n_body), generator=g)
     pre_t = torch.tensor(pre_ids).expand(b, -1)
     post_t = torch.tensor(post_ids).expand(b, -1)
-    return torch.cat([pre_t, body, post_t], dim=1)
+    full = torch.cat([pre_t, body, post_t], dim=1)
+    mask = torch.ones_like(full)
+    if ragged > 0:
+        drop = torch.randint(0, int(ragged * n_body) + 1, (b,), generator=g)
+        drop[0] = 0  # ao menos uma sequência com o comprimento cheio
+        for i in range(b):
+            k = int(drop[i])
+            if k:
+                full[i] = torch.cat([torch.zeros(k, dtype=full.dtype), full[i, k:]])
+                mask[i, :k] = 0
+    return full, mask
 
 
-def timed_generate(model, ids, n_new: int) -> tuple[float, torch.Tensor]:
-    mask = torch.ones_like(ids)
+def timed_generate(model, ids, mask, n_new: int) -> tuple[float, torch.Tensor]:
     torch.cuda.synchronize()
     t = time.perf_counter()
     out = model.generate(input_ids=ids, attention_mask=mask, max_new_tokens=n_new, min_new_tokens=n_new,
@@ -53,11 +64,12 @@ def main() -> None:
     ap.add_argument("--prompt-len", type=int, default=1024)
     ap.add_argument("--new", type=int, default=4096)
     ap.add_argument("--ladder", default="8,16,32,64,96,128,192,256,384")
+    ap.add_argument("--ragged", type=float, default=0.0, help="fração de padding à esquerda (0 = sem padding)")
     ap.add_argument("--out", default="runs/phase0/gen_resources.jsonl")
     a = ap.parse_args()
     out = Path(a.out)
     ladder = [int(x) for x in a.ladder.split(",")]
-    done = {(r["P"], r["N"], r["b"]): r for r in gpu.read_jsonl(out) if "b" in r}
+    done = {(r["P"], r["N"], r["b"]): r for r in gpu.read_jsonl(out) if "b" in r}  # `out` separado por valor de --ragged
     if all((a.prompt_len, a.new, b) in done for b in ladder):
         print("nada a fazer")
         return
@@ -73,22 +85,23 @@ def main() -> None:
             continue
         if oom:
             break
-        row = {"P": a.prompt_len, "N": a.new, "b": b}
-        ids = build_prompts(tok, b, a.prompt_len).to("cuda")
+        row = {"P": a.prompt_len, "N": a.new, "b": b, "ragged": a.ragged}
+        ids, mask = build_prompts(tok, b, a.prompt_len, ragged=a.ragged)
+        ids, mask = ids.to("cuda"), mask.to("cuda")
         try:
             with torch.inference_mode():
                 gpu.reset_peak()
                 try:
-                    timed_generate(model, ids, 1)  # aquecimento: autotune dos kernels no primeiro uso
+                    timed_generate(model, ids, mask, 1)  # aquecimento: autotune dos kernels no primeiro uso
                     gpu.reset_peak()
-                    t_pre, _ = timed_generate(model, ids, 1)
+                    t_pre, _ = timed_generate(model, ids, mask, 1)
                 except torch.OutOfMemoryError:
                     raise RuntimeError("oom_prefill")
                 row["prefill_s"] = round(t_pre, 2)
                 row["peak_after_prefill_gib"] = gpu.peak_gib()["peak_allocated_gib"]
                 gc.collect(); torch.cuda.empty_cache()
                 gpu.reset_peak()
-                t_all, seqs = timed_generate(model, ids, a.new)
+                t_all, seqs = timed_generate(model, ids, mask, a.new)
             n_gen = seqs.shape[1] - ids.shape[1]
             assert n_gen == a.new, f"gerou {n_gen} tokens, esperado {a.new}"
             decode_s = max(t_all - t_pre, 1e-6)

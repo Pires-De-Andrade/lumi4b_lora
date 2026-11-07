@@ -185,6 +185,8 @@ Os nomes foram confirmados na fase 0 com `named_modules()`: o regex casa exatame
 
 **Decisão da fase 0: implementação nativa do Transformers** (`AutoModelForCausalLM` sem `trust_remote_code`). O código do repositório (`modeling_nemotron_h.py`) fica só como referência. Sem padding, as duas implementações calculam o mesmo. O código do repositório erra com padding à esquerda, que o `generate` em batch usa, e seu `generate` quebra no Transformers 5.22.2. A nativa usa os mesmos kernels e para em `<|im_end|>`. Medições, números e limites estão em [discovery.md](discovery.md).
 
+**Decisão de 2026-11-07 (prazo de 2 dias): a avaliação gera com o vLLM 0.33.0**, não com a nativa. Treino, fusão e testes de equivalência continuam na nativa. O vLLM roda no `.venv-vllm`, separado (exige torch 2.14.0 e transformers < 5.21), e produz as mesmas notas que o HF no GSM8K-PT (piloto de 256 itens: 90,6% contra 91,0% com raciocínio, 88,3% contra 87,9% sem), com ~10 vezes menos tempo. Fica de fora a reprodutibilidade bit a bit (ver A-04).
+
 O modelo fundido salvo pela nativa mantém as chaves do original (263 de 263, prefixo `backbone`), mas o `config.json` salvo é outro (`layers_block_type` no lugar de `hybrid_override_pattern`, campos de MoE/MTP com valores padrão). Na entrega, os pesos vêm da nativa e o `config.json`, o tokenizer e os `.py` vêm do repositório original. Carregar a entrega com `trust_remote_code` ainda não foi testado; fica para a fase 5. Detalhes em [discovery.md](discovery.md).
 
 ### Carga e tokenizer
@@ -198,27 +200,26 @@ O modelo fundido salvo pela nativa mantém as chaves do original (263 de 263, pr
 
 | Parâmetro | Valor | Origem |
 | --- | --- | --- |
-| `r` | 8, 16 e 32 | NVIDIA usa 8; mudar o comportamento pode exigir mais |
+| `r` | 16 (fixo; o plano original varria 8, 16 e 32) | NVIDIA usa 8; sem o piloto de ranks por prazo, `r=32` só entra se a meta falhar (ver riscos) |
 | `lora_alpha` | 2 × `r` | NVIDIA usa 16 e 32 com `r=8` |
 | `lora_dropout` | 0 | NVIDIA usa 0, e o DoRA fica mais rápido assim |
 | Taxa de aprendizado | 1e-4, varrendo 5e-5 e 2e-4 | NVIDIA usa 1e-4 em LoRA |
 | Otimizador | AdamW com cosseno e warmup de 3% | AdamW e cosseno do Tucano 2; warmup escolhido no projeto (o Tucano 2 usa 10%) |
-| Sequência | 2.048 tokens, sem truncar | Acima do máximo de 1.000 tokens dos dados |
-| Batch | Batch físico de 4 sequências nas 18 execuções, agrupado por comprimento, com acumulação de gradiente para o efetivo (a definir na fase 3) | Medido na fase 0 no pior caso (DoRA, `r=32`): 4 sequências de 2.048 tokens usam 21,9 GiB de pico, e os dados têm no máximo 1.000 tokens (cerca de 15 GiB). 8 sequências caberiam só até 1.024 tokens, com menos de 1 GiB de folga, por +9% de velocidade no DoRA e nada no LoRA |
-| Épocas | Até 3, com parada antecipada | Escolha do projeto; o Tucano 2 usou 5 |
-| Gradient checkpointing | `use_reentrant=False`, `use_cache=False` | Requisito de memória |
+| Sequência | 1.024 tokens, sem truncar; exemplo acima disso é descartado e contado no relatório | O máximo dos dados é 1.000 tokens (p99 935) |
+| Batch | Físico por orçamento de tokens, agrupado por comprimento: 2.048 tokens no LoRA (2 sequências) e 1.024 no DoRA (1 sequência). Efetivo de 32 sequências nos dois braços, por acumulação de gradiente | Medido na fase 0 sem checkpointing: LoRA cabe 2 × 1.024 (17,8 GiB) e DoRA 1 × 1.024 (15,3 GiB); 3 e 2 dão falta de memória. O efetivo igual nos dois braços faz o físico diferente não mudar a otimização. O efetivo de 32 é inicial, a confirmar na varredura |
+| Épocas | 2 nos finalistas e 1 nas outras etapas, sem parada antecipada | Corte por prazo (2026-11-07); o plano original era até 3 com parada antecipada, e o Tucano 2 usou 5 |
+| Gradient checkpointing | Desligado; `use_cache=False` | Medido: +34% de velocidade no LoRA e +62% no DoRA. Se algum lote der falta de memória, ligar `use_reentrant=False` e registrar |
 
 ### Matriz de experimentos
 
-| Etapa | Execuções | Dados | Saída |
-| --- | --- | --- | --- |
-| Viabilidade | 1 (LoRA, `r=16`) | 10.000 exemplos com raciocínio, mais 25% sem | Decisão sobre seguir |
-| Varredura de taxa | 3 (LoRA, `r=16`) | 20% | Taxa fixada |
-| Mistura | 2 (LoRA, `r=16`): 75/25 e 100/0 | 20% | Mistura fixada |
-| Piloto | 6 (2 métodos × 3 ranks) | 20% | Melhor rank por método |
-| Finalistas | 6 (2 métodos × 3 seeds) | 100% | Melhor adaptador por método |
+| Etapa | Execuções | Dados | Épocas | Saída |
+| --- | --- | --- | --- | --- |
+| Viabilidade | 1 (LoRA, `r=16`) | 10.000 exemplos com raciocínio, mais 25% de tokens sem | 1 | Decisão sobre seguir |
+| Varredura de taxa | 3 (LoRA, `r=16`; 5e-5, 1e-4 e 2e-4) | 20% | 1 | Taxa fixada |
+| Mistura | 2 (LoRA, `r=16`): 75/25 e 100/0 | 20% | 1 | Mistura fixada |
+| Finalistas | 2 (LoRA e DoRA, `r=16`), 1 seed | 100% | 2 | Um adaptador por método |
 
-São 18 execuções e, no pior caso (3 épocas sem parada antecipada, dados sem filtrar), cerca de 1,16 bilhão de tokens de treino: 658 M nos braços LoRA e 501 M nos DoRA. Com a velocidade medida na fase 0 com batch 4 (LoRA 4,1 mil tokens/s, DoRA 2,3 mil tokens/s, `r` e comprimento quase não mudam isso), são cerca de 45 h de LoRA e 61 h de DoRA, ou **cerca de 105 h de GPU (4,4 dias contínuos)**, sem contar avaliação. O DoRA custa 1,8 vez o tempo do LoRA por token. As medições estão em [discovery.md](discovery.md).
+São 8 execuções (a matriz original tinha 18), com cerca de 238 M de tokens: 145 M no LoRA e 93 M no DoRA. Sem checkpointing, a velocidade medida é 5,8 mil tokens/s no LoRA e 2,5 mil no DoRA, o que dá 17 min na viabilidade, 2,2 h nas varreduras e na mistura (5 execuções de ~27 min) e 4,4 h (LoRA) mais 10,4 h (DoRA) nos finalistas: **cerca de 17 h de GPU**. Cortes em relação à matriz original, por prazo (decisão de 2026-11-07): sem o piloto de ranks (`r=16` fixo), 1 seed no lugar de 3 e 2 épocas fixas no lugar de até 3 com parada antecipada. Consequências: o rank não é otimizado, e sem seeds o IC 95% entre os finalistas é só o do bootstrap por item, sem a variação entre seeds.
 
 A seleção usa os conjuntos de validação de A-10, nunca as provas de teste. A loss não basta, porque não mede se o raciocínio melhora a resposta.
 
@@ -247,7 +248,7 @@ Esses conjuntos só entram na avaliação, nunca no treino. O artigo do Tucano 2
 | A-01 | Medir o Lumi v0.2 antes de treinar, nos dois modos. A referência é a baseline medida aqui, porque o harness muda a nota: o Nemotron 3 Nano 4B tem 40,93 no gráfico do CEIA e 39,63 no repositório do IFEval. |
 | A-02 | Rodar os 535 prompts do Portuguese-IFEval com o avaliador oficial e registrar a nota estrita por prompt. Passar a ele só o texto depois de `</think>`, porque a documentação do repositório não diz se a limpeza remove o traço. |
 | A-03 | Rodar MMLU PT (ensino médio e graduação), Global MMLU PT, MMMLU PT e INCLUDE PT com versão e amostra fixadas, usando as provas completas da tabela de conjuntos inferidos abaixo. Não usar `Portuguese-MMLU/*` nem as cópias em `cemig-ceia` e `bench-temp-2`: esses conjuntos têm 8.704 e 29.094 questões de teste, o que tornaria a baseline não comparável ao cartão. |
-| A-04 | Usar temperatura 0, sem exemplos no prompt, com `enable_thinking` declarado e até 4.096 tokens novos nos dois modos. Sem penalidade de repetição, exceto no IFEval, cujo padrão em Transformers é 1,2. Registrar se isso prejudica os traços. Gerar na implementação nativa. Mesmo em temperatura 0, mudar a composição do batch troca o top-1 em cerca de 1,6% das posições (piso de ruído BF16 medido na fase 0), então fixar o tamanho do batch e a ordem dos itens na avaliação: batch 32, itens ordenados por comprimento do prompt, e batch menor por regra que só depende do prompt quando 32 × maior prompt passar de 32.768 tokens (limite medido do prefill: 64 × 1.024 dá falta de memória). |
+| A-04 | Usar temperatura 0, sem exemplos no prompt, com `enable_thinking` declarado e até 4.096 tokens novos nos dois modos. Sem penalidade de repetição, exceto no IFEval, cujo padrão em Transformers é 1,2. Registrar se isso prejudica os traços. Gerar com o vLLM 0.33.0 (`.venv-vllm`, `VLLM_USE_FLASHINFER_SAMPLER=0`, `max_num_seqs=128`, `max_model_len=8192`), com o mesmo motor e a mesma configuração para a baseline e para todos os candidatos. O vLLM usa batching contínuo e não é reprodutível bit a bit: em duas execuções do mesmo comando, o texto é idêntico em 23% (com raciocínio) a 71% (sem) dos itens, e a nota variou 1,2 ponto em 256 itens (88,3% e 89,4%). Esse ruído não entra no IC 95% do bootstrap por item (A-07), então o relatório registra a variação medida entre duas execuções da baseline. (No HF com lotes fixos, o ruído por composição de lote é ~1,6% das posições; a regra de lote 32 ordenado por prompt vale só se a geração voltar ao HF.) |
 | A-05 | Extrair a resposta só depois de `</think>`. Resposta sem `</think>` ou sem alternativa conta como erro, e a taxa de cada caso vai para o relatório. Testar a extração com casos sintéticos antes da baseline (feito: `tests/test_extract.py`, 70 casos). |
 | A-06 | No GSM8K-PT, pedir a linha final `#### <número>` e usar `strict-match` como nota. Registrar também `flexible-extract`, porque o artigo do Tucano 2 descreve os dois e não diz qual está nas suas tabelas. Os dois copiam o `gsm8k.yaml` do harness. No dataset, 3 alvos são malformados (`6mph`, `R$ 276.000`, `25%`) e 9 usam `.` de milhar (`2.125`), então a nota estrita não passa de 99,07% para quem responde o inteiro puro; registrar também a leitura PT-BR (`70.000` = 70000) como diagnóstico, sem mudar a nota. |
 | A-07 | Calcular a diferença para a baseline com bootstrap pareado por item, dentro de cada prova: 10.000 reamostras e IC de 95% para cada nota, para a Nota de raciocínio e para o Overall. |
@@ -259,7 +260,7 @@ Esses conjuntos só entram na avaliação, nunca no treino. O artigo do Tucano 2
 | A-13 | No vencedor, repetir a validação do GSM8K-PT com `temperature=1.0` e `top_p=0.95`, a recomendação do Nemotron para raciocínio, em 3 seeds. O resultado entra no relatório, sem afetar a seleção. |
 | A-14 | Registrar pico de memória, tempo por época e tokens por segundo em cada execução. Medir a memória com `torch.cuda.max_memory_allocated()` e `max_memory_reserved()`. Registrar também os processos do `nvidia-smi` no início e no fim, porque outro usuário na GPU pode distorcer o tempo e causar falta de memória. |
 
-**Custo estimado:** um sistema com raciocínio nas 11 provas tem 73.095 itens, cerca de 37 milhões de tokens a 500 tokens por resposta. A fase 0 mediu a geração em batch na 4090: 1.470 a 1.570 tokens/s com batch 32 e no máximo 1.800 a 2.200 tokens/s com o maior batch que cabe (56 a 96, conforme o prompt). Só que o `generate` em batch termina quando a saída mais longa do lote termina, então uma saída que não fecha até 4.096 tokens segura as outras 31, e o custo real é (maior saída do lote) × 21,7 ms por passo, não tokens úteis ÷ vazão. Como a distribuição de comprimentos ainda não é conhecida, a matriz de A-12 fica **entre cerca de 43 h e 159 h** (com raciocínio, 31 a 126 h; sem raciocínio, 12 a 33 h), contra os 13 a 26 h da primeira estimativa. Um piloto de algumas centenas de itens, antes da baseline completa, mede essa cauda. Cenários e memória por sequência em [discovery.md](discovery.md).
+**Custo estimado:** com o vLLM, o GSM8K-PT inteiro (1.295 itens) leva 233 s com raciocínio e 116 s sem (5,6 e 11,2 itens/s). Extrapolando para as 11 provas (73.095 itens por modo), a baseline do Lumi nos dois modos leva cerca de 5,5 h e a matriz de A-12 cerca de 14 h. É extrapolação de uma prova de matemática; as de múltipla escolha podem ter respostas mais curtas ou mais longas, e a primeira rodada mede isso. No HF as mesmas contas davam ~56 h e ~136 h, porque o `generate` em lote espera a saída mais longa. Medições em [discovery.md](discovery.md).
 
 **Conjuntos e amostras do cartão (inferência)**
 
@@ -281,7 +282,7 @@ O cartão não informa conjuntos, amostras, harness nem parâmetros, e o CEIA ai
 - Sem raciocínio, queda de até 1 ponto no Overall, sem nenhuma nota com IC 95% da diferença inteiramente abaixo de 0.
 - Taxa de recusa, nos dois modos, não inferior à do Lumi sem raciocínio, salvo decisão registrada.
 
-Se os dois candidatos vencerem, fica o de maior Nota de raciocínio. Se o IC 95% da diferença entre eles contiver 0, fica o LoRA, que é mais simples e mais rápido.
+Se os dois candidatos vencerem, fica o de maior Nota de raciocínio. Se o IC 95% da diferença entre eles contiver 0, fica o LoRA, que é mais simples e mais rápido (com 1 seed, esse IC é o do bootstrap por item e não inclui a variação entre seeds).
 
 O Overall com raciocínio ligado entra no relatório sem trava, porque o custo em formato é conhecido: o Tucano Think perdeu 10 pontos no IFEval-PT contra o Instruct.
 
@@ -371,6 +372,7 @@ Os pacotes seguem a tabela abaixo.
 | TRL | ≥ 1.17. Fixado no lock: 1.17.1 |
 | PyTorch | 2.14.1+cu130, fixado no `pyproject.toml` e no `uv.lock`. A 2.15.0 só tem builds cu132 e cu134, acima do CUDA 13.0 do driver |
 | `nvcc` | `cuda-nvcc` 13.0.88 do conda-forge, instalado com micromamba dentro de `barros` |
+| vLLM 0.33.0 | Só para a avaliação, no `.venv-vllm` separado (torch 2.14.0, transformers 5.20.2), instalado por `scripts/install_vllm.sh`; rodar com `VLLM_USE_FLASHINFER_SAMPLER=0` |
 | `mamba-ssm` 2.3.2.post1 e `causal-conv1d` 1.7.0 | Só têm código-fonte no PyPI, então são compilados com o `nvcc` acima por `scripts/build_kernels.sh` e ficam fora do lockfile |
 
 Os `setup.py` dos dois kernels usam `CUDAExtension` e leem a versão do `nvcc`. A ordem importa: instalar o PyTorch primeiro e compilar com `--no-build-isolation`, para os kernels não serem compilados contra outro PyTorch.
@@ -416,7 +418,8 @@ Estas regras valem para todas as fases.
 - [x] Testar a extração de resposta conforme A-05 e A-06.
 - [x] Medir pico de memória, maior batch viável e tokens por segundo por braço, conforme A-14, e fixar o batch do treino no pior caso (DoRA, `r=32`, sequências mais longas).
 - [x] Medir o maior batch viável na geração, no pior caso de 4.096 tokens novos, porque o cache cresce com a resposta. Resultado: 56 com prompt de 1.024 tokens, 64 com 512 e 96 com 256; o limite é o estado do Mamba (~82 MiB por sequência) e o prefill, não o cache de atenção.
-- [ ] Medir a baseline do Lumi nos dois modos, conforme A-01 a A-09, inclusive a forma do raciocínio.
+- [x] Instalar o vLLM em ambiente separado e validar contra o HF no GSM8K-PT (piloto de 256 itens; ver A-04).
+- [ ] Medir a baseline do Lumi nos dois modos, conforme A-01 a A-09, inclusive a forma do raciocínio. Feito só o GSM8K-PT inteiro (88,9% com raciocínio, 85,2% sem, no vLLM); faltam as outras 10 provas e A-09.
 
 **Gate:** todos os testes passam, e a baseline sem raciocínio está a até 1 ponto do cartão ou a diferença está documentada. Se o Lumi com raciocínio já cumprir as metas de forma ou de nota, apresentar isso antes de seguir, porque o problema a resolver muda.
 
@@ -443,18 +446,19 @@ Um treino pequeno mostra se o caminho funciona antes de gastar GPU com a matriz 
 
 **Gate:** ao menos 95% das respostas fecham `</think>`, ao menos 90% dos traços estão em português e a nota na validação do GSM8K-PT tem IC 95% da diferença acima de 0 contra o Lumi sem raciocínio. Se falhar, parar e decidir entre mais dados, traços gerados e verificados (outro PRD) ou encerrar.
 
-### Fase 3: piloto
+### Fase 3: varreduras
 
 - [ ] Rodar a varredura de taxa de aprendizado.
 - [ ] Comparar as misturas 75/25 e 100/0, inclusive no modo sem raciocínio.
-- [ ] Rodar as 6 execuções do piloto.
 - [ ] Comparar nota na validação, forma do raciocínio, loss, memória e tempo.
 
-**Gate:** taxa, mistura e um rank por método escolhidos, com justificativa.
+(O piloto de ranks foi cortado por prazo; ver a matriz de experimentos.)
+
+**Gate:** taxa e mistura escolhidas, com justificativa.
 
 ### Fase 4: finalistas
 
-- [ ] Rodar as 6 execuções finalistas.
+- [ ] Rodar as 2 execuções finalistas (LoRA e DoRA, `r=16`, 2 épocas).
 - [ ] Escolher o melhor adaptador de cada método na validação.
 - [ ] Fundir os 2 candidatos sobre o Lumi em BF16 e repetir a checagem de equivalência.
 
