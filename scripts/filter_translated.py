@@ -1,4 +1,4 @@
-"""Descontamina os registros traduzidos (8-grama contra as nossas provas e a validação) e escreve <dir>/{think,nothink,questions}_clean.jsonl.
+"""Descontamina os registros traduzidos (8-grama contra as nossas provas e a validação) e escreve <dir>/{think,nothink,questions,think_en}_clean.jsonl.
 
 Uso: PYTHONPATH=src python scripts/filter_translated.py data/mot_pilot
 """
@@ -24,7 +24,7 @@ def main() -> None:
         v = json.loads(line)
         val.add(v["question"] + "\n" + v["answer"])
     st = Counter()
-    for mode in ("think", "nothink", "questions"):
+    for mode in ("think", "nothink", "questions", "think_en"):
         f = d / f"{mode}.jsonl"
         recs = [json.loads(line) for line in f.read_text().splitlines()] if f.exists() else []
         keep = []

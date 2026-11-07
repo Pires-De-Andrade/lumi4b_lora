@@ -175,8 +175,8 @@ A mistura inicial abaixo é uma hipótese, testada contra 100% de raciocínio na
 | [`adalberto-temp/gsm8k-sft-thinking-pt`](https://huggingface.co/datasets/adalberto-temp/gsm8k-sft-thinking-pt) | Traços do Qwen3-30B-A3B-Thinking para problemas do GSM8K `train` em português; sem licença | Usado: matemática boa, múltipla escolha ruim |
 | Autodestilação do Lumi | Raciocínio do Lumi forçado em português (prefill) e filtrado | Testado: pior que o Lumi |
 | Pacote 1 da Thor (`handoff/thor/`) | Qwen3-30B-A3B-Thinking, prefill em português, 50.908 problemas | Gerando na Thor |
-| Pacote 2 da Thor (`handoff/thor2/`) | Nemotron 3 Nano 30B-A3B, raciocínio em inglês, 9.612 de matemática e 12.000 de múltipla escolha | Gerando na Thor; o raciocínio será traduzido aqui |
-| [`nvidia/Nemotron-SFT-Multilingual-v2`](https://huggingface.co/datasets/nvidia/Nemotron-SFT-Multilingual-v2) (`stem_pt`) | Questões de ciência em português do Brasil (enunciado e resposta final traduzidos pelo DeepSeek-V3) com raciocínio do GPT-OSS-120B em inglês, o estilo do Nemotron 3 e do Lumi | Em tradução do raciocínio (`nemo_mix`): 8.000 de 26.671 questões de múltipla escolha com traço de até 1.000 palavras |
+| Pacote 2 da Thor (`handoff/thor2/`) | Nemotron 3 Nano 30B-A3B, raciocínio em inglês, 9.612 de matemática e 12.000 de múltipla escolha | Gerando na Thor; o raciocínio será traduzido na própria Thor (pacote 3) |
+| Pacote 3 da Thor (`handoff/thor3/`) | O Nemotron 30B traduz para o português os exemplos dos pacotes 2 e 3 e gera traços de 12.000 questões de múltipla escolha com gabarito oficial: 7.000 do [WebInstruct-verified](https://huggingface.co/datasets/TIGER-Lab/WebInstruct-verified) (negócios, economia, finanças, matemática, física, química, biologia, psicologia, história, filosofia, direito) e 5.000 do [MedMCQA](https://huggingface.co/datasets/openlifescienceai/medmcqa) (21 áreas médicas), ambos Apache-2.0, sem 8-grama com o MMLU e o MMLU-ProX | Pronto para ir à Thor |
 | Questões de ciência do `open-r1/Mixture-of-Thoughts` | Múltipla escolha com traços do R1 | Só os enunciados, traduzidos, como prompts do GRPO (3.715 após o 8-grama) |
 | `recogna-nlp/Bode-reasoning` | Exames e raciocínio traduzido | **Fora:** os 3.869 itens de ENEM, BLUEX e OAB têm 100% de 8-grama com as nossas provas |
 
@@ -245,7 +245,7 @@ O modelo fundido salvo pela nativa mantém as chaves do original (263 de 263, pr
 | `lora_dropout` | 0 | NVIDIA usa 0, e o DoRA fica mais rápido assim |
 | Taxa de aprendizado | 1e-4, varrendo 5e-5 e 2e-4 | NVIDIA usa 1e-4 em LoRA |
 | Otimizador | AdamW com cosseno e warmup de 3% | AdamW e cosseno do Tucano 2; warmup escolhido no projeto (o Tucano 2 usa 10%) |
-| Sequência | 1.024 tokens, sem truncar; exemplo acima disso é descartado e contado no relatório | O máximo dos dados do GigaVerbo é 1.000 tokens (p99 935). Com traços de professor, o limite de 1.024 descartou 34% dos candidatos do adalberto; o teste com 2.048 (`--max-len`) não melhorou a múltipla escolha, e o `nemo_mix` usa 2.048 porque os traços da NVIDIA são mais longos |
+| Sequência | 1.024 tokens, sem truncar; exemplo acima disso é descartado e contado no relatório | O máximo dos dados do GigaVerbo é 1.000 tokens (p99 935). Com traços de professor, o limite de 1.024 descartou 34% dos candidatos do adalberto; o teste com 2.048 (`--max-len`) não melhorou a múltipla escolha |
 | Batch | Físico por orçamento de tokens, agrupado por comprimento: 2.048 tokens no LoRA (2 sequências) e 1.024 no DoRA (1 sequência). Efetivo de 32 sequências nos dois braços, por acumulação de gradiente | Medido na fase 0 sem checkpointing: LoRA cabe 2 × 1.024 (17,8 GiB) e DoRA 1 × 1.024 (15,3 GiB); 3 e 2 dão falta de memória. O efetivo igual nos dois braços faz o físico diferente não mudar a otimização. O efetivo de 32 é inicial, a confirmar na varredura |
 | Épocas | 2 nos finalistas e 1 nas outras etapas, sem parada antecipada | Corte por prazo (2026-11-07); o plano original era até 3 com parada antecipada, e o Tucano 2 usou 5 |
 | Gradient checkpointing | Desligado; `use_cache=False` | Medido: +34% de velocidade no LoRA e +62% no DoRA. Se algum lote der falta de memória, ligar `use_reentrant=False` e registrar |
@@ -275,8 +275,8 @@ A matriz acima era o plano com os dados do GigaVerbo; depois do gate da fase 2 p
 | `adalberto_s050` e `_s075` | mesmo adaptador, escala 0,5 e 0,75 na fusão | 84,0% / 79,6% e 84,0% / 79,1% | 63,4% / 64,9% e 64,4% / 58,7% |
 | `adalberto_L2048` | mesmo dado, limite de 2.048 tokens | 82,2% / 81,7% | 64,2% / 55,3% |
 | `selfdist` | Lumi com prefill em português: 6.365 com raciocínio, 2.204 sem | 78,1% / 77,5% | 57,9% / 63,4% |
-| `adalberto_dora` | mesmo dado, DoRA | em avaliação | em avaliação |
-| `nemo_mix` | adalberto (matemática) mais 8.000 questões da NVIDIA com o raciocínio traduzido | pendente | pendente |
+| `adalberto_dora` | mesmo dado, DoRA | 84,0% / 79,1% | 62,6% / 57,7% |
+| `nemotron4b` (referência, sem treino) | Nemotron 3 Nano 4B | 85,2% / 63,5% | 68,3% / 58,7% |
 | `grpo1` | GRPO a partir do adaptador `adalberto`, 8 iterações | pendente | pendente |
 | `adalberto_lr5e5` | mesmo dado, lr 5e-5 | pendente | pendente |
 
@@ -536,7 +536,7 @@ Entre o gate da fase 2 e as varreduras: descobrir uma receita que passe o Lumi t
 - [x] Piloto de tradução do raciocínio pelo Lumi: 86% aceito, 94,7% dos números preservados (média), vocabulário técnico com erros.
 - [x] Montar os pacotes da Thor (Qwen3-30B e Nemotron 3 Nano 30B-A3B) e a entrega em `thor_out.tar.gz` e `thor2_out.tar.gz`.
 - [x] Escrever o GRPO e passar o teste de fumaça.
-- [ ] Avaliar o DoRA com os dados do `adalberto`, o `nemo_mix`, o GRPO (`grpo1`) e o lr 5e-5.
+- [ ] Avaliar o GRPO (`grpo1`) e o lr 5e-5. Feitos: DoRA (empata com o LoRA) e Nemotron 4B de referência. O teste de estilo do professor usa os traços do Nemotron 30B da Thor (pacotes 2 e 3, traduzidos na própria Thor).
 - [ ] Avaliar o Nemotron 3 Nano 4B de referência (A-17) e montar a tabela de A-16.
 - [ ] Processar as entregas da Thor, traduzir e treinar com elas.
 - [ ] Medir o diagnóstico português x inglês no MMLU-ProX (decide se o CPT reabre).
@@ -608,7 +608,7 @@ O maior risco é de resultado: o Tucano 3.7B Think usou os mesmos dados e só ga
 
 - [ ] Qual harness e quais parâmetros o CEIA usou no cartão (temperatura, few-shot, prompts, limite de tokens e raciocínio nos modelos comparados)? O cartão não documenta nada disso. Pedir também o notebook `colab_graficos_llms-2.ipynb`, citado na primeira versão do cartão.
 - [x] Vale usar [`adalberto-temp/gsm8k-sft-thinking-pt`](https://huggingface.co/datasets/adalberto-temp/gsm8k-sft-thinking-pt)? Decidido em 2026-11-07: sim, só como experimento, com o filtro D-12 e a validação limpa (A-15). Sem licença declarada, não entra em nada que seja publicado sem decisão registrada.
-- [ ] Qual é o ponto de partida do GRPO? Hoje é o adaptador `adalberto`; se o `nemo_mix` ou o DoRA vencerem, trocar antes de o `grpo1` começar.
+- [ ] Qual é o ponto de partida do GRPO? Hoje é o adaptador `adalberto`; o DoRA empatou com o LoRA, então ele não muda. O `grpo1` (re)começou às 20:11 de 07/11, depois do diagnóstico português x inglês.
 - [ ] O raciocínio em português é requisito fixo? A comparação em quatro colunas (A-16) mede o custo do idioma; a decisão fica para depois do teste com raciocínio em inglês, conduzido pelo usuário.
 - [ ] Reabrir o CPT? Depende do diagnóstico português x inglês no MMLU-ProX.
 
@@ -629,6 +629,6 @@ Nesta versão, o `chat_template.jinja` e as configs do Lumi foram lidos por comp
 - [DoRA no PEFT](https://huggingface.co/docs/peft/main/package_reference/lora_variant_dora)
 - [Nemotron 3 Nano 4B no Megatron Bridge](https://docs.nvidia.com/nemo/megatron-bridge/nightly/models/nemotron/nemotron3-nano-4b.html)
 - [Guia do Nemotron 3 na Unsloth](https://unsloth.ai/docs/models/tutorials/nemotron-3)
-- [Nemotron-SFT-Multilingual-v2](https://huggingface.co/datasets/nvidia/Nemotron-SFT-Multilingual-v2), [Nemotron-Science-v1](https://huggingface.co/datasets/nvidia/Nemotron-Science-v1), [Nemotron-Math-v2](https://huggingface.co/datasets/nvidia/Nemotron-Math-v2) e [Nemotron-Post-Training-Dataset-v2](https://huggingface.co/datasets/nvidia/Nemotron-Post-Training-Dataset-v2)
+- [WebInstruct-verified](https://huggingface.co/datasets/TIGER-Lab/WebInstruct-verified), [MedMCQA](https://huggingface.co/datasets/openlifescienceai/medmcqa), [Nemotron-Math-v2](https://huggingface.co/datasets/nvidia/Nemotron-Math-v2) e [Nemotron-Post-Training-Dataset-v2](https://huggingface.co/datasets/nvidia/Nemotron-Post-Training-Dataset-v2)
 - [Nemotron 3 Nano 30B-A3B](https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16) e o [blog da NVIDIA sobre o Nemotron 3 Nano](https://huggingface.co/blog/nvidia/nemotron-3-nano-efficient-open-intelligent-models)
 - [Qwen3-30B-A3B-Thinking-2507](https://huggingface.co/Qwen/Qwen3-30B-A3B-Thinking-2507), [`open-r1/Mixture-of-Thoughts`](https://huggingface.co/datasets/open-r1/Mixture-of-Thoughts) e [Long Chain-of-Thought Reasoning Across Languages](https://arxiv.org/html/2508.14828v1)
