@@ -114,22 +114,101 @@ Com `eos_token_id=[2, 11]` a geração termina em `<|im_end|>`. Só com o `eos=2
 - O servidor do tmux sai quando a última sessão termina. `tmux ls` vazio não significa falha: ver `runs/jobs/<nome>.exit` e `.log`.
 - Aspas aninhadas no `tmux new-session` expandiram `${PIPESTATUS[0]}` cedo demais. O lançador agora grava um script em arquivo.
 
-## 9. Pendências da fase 0
+## 9. Extração de resposta (A-05 e A-06)
 
-1. Testes de extração de resposta (A-05 e A-06).
-2. Pico de memória, maior batch viável e tokens por segundo por braço (A-14), e o maior batch de geração com 4.096 tokens novos.
-3. Baseline do Lumi nos dois modos (precisa de aprovação, por passar de 1 hora de GPU).
-4. Verificar se o modelo fundido salvo pela nativa mantém o formato de chaves esperado por quem carrega o Lumi com o código do repositório (`backbone.` contra `model.`).
-5. Isolar a causa do erro de padding à esquerda no código do repositório, se for útil. Não é necessário para seguir com a nativa.
+Código em `src/lumi_ft/eval/parse.py`; 70 testes sintéticos em `tests/test_extract.py` (só CPU, 0,04 s).
 
-## 10. Como reproduzir
+- **`</think>` e `<think>` não são tokens especiais** (id 12 e 13); `<|im_end|>` é. Então `skip_special_tokens=True` mantém as tags e apaga `<|im_end|>`, e `False` mantém tudo. A extração aceita os dois e corta no primeiro `<|im_end|>`.
+- **Regra:** a resposta é o texto depois do primeiro `</think>`. Com raciocínio ligado, a saída gerada começa dentro do traço (o prompt termina em `<think>\n`), então sem `</think>` não existe resposta (`no_close`), mesmo que o traço contenha `Resposta: B` ou `#### 7`. Sem raciocínio, o prompt já termina em `<think></think>` e a saída inteira é a resposta; um `<think>` aberto e nunca fechado também é `no_close`. Status: `ok`, `no_close`, `empty_answer`, `no_option`, `invalid_option`, `no_number`; `rates()` dá a taxa de cada um para o relatório.
+- **Múltipla escolha:** a nota é a forma estrita, a última linha `Resposta: <letra>` (aceita negrito, parênteses e ponto final). A forma flexível (`a resposta correta é a letra B`, `gabarito: C`, ou a resposta ser só a letra) é registrada ao lado. Nenhuma letra solta vale, porque `A`, `E` e `O` são palavras em português: `As alternativas A e B estão erradas` não extrai nada, e `Resposta: A resposta correta é B` extrai `B`. O prompt de múltipla escolha ainda não existe e precisa pedir a linha `Resposta: <letra>`.
+- **GSM8K-PT:** `strict-match` (primeiro `#### <número>`) e `flexible-extract` (último número do texto) copiam o `gsm8k.yaml` do fork [Polygl0t/lm-evaluation-harness](https://github.com/Polygl0t/lm-evaluation-harness), inclusive as regexes de normalização (`,`, `$`, prefixo até `#### ` e `.` final), para a nota ser comparável. O `flexible-extract` herda uma limitação do harness: `[$0-9.,]{2,}` aceita `...` como número (fixada em teste).
+- **Checagem em dados reais** (`Polygl0t/gsm8k-pt`, `test`, 1.295 itens): lendo as próprias referências como se fossem saídas do modelo, 1.292 batem. Os outros 3 têm alvo malformado no dataset (`#### 6mph`, `#### R$ 276.000`, `#### 25%`; índices 18, 225 e 1072) e nenhuma extração os acerta. Além disso, 9 alvos usam `.` como separador de milhar (`2.125`, `114.200`, `1.600`, `65.960`, `6.250`, `14.000`, `6.600`, `1.875`, `40.000`; índices 143, 196, 495, 598, 803, 813, 977, 988 e 1182): quem responde o inteiro correto (`2125`) perde na nota estrita, e quem imita o formato (`2.125`) acerta. **A nota estrita fica limitada a 1.283/1.295 = 99,07% para respostas escritas como inteiro puro.** O efeito é igual para todos os sistemas, mas pode pesar diferente se um modo escrever milhares com ponto mais que o outro. `gsm8k_correct_ptbr` (aceita `70.000` = 70000 e `3,5` = 3.5) é diagnóstico para medir quanto da nota perdida vem só do formato; a nota continua sendo a do harness.
+- **Limites:** o harness e os prompts ainda não foram implementados. Os testes provam a extração, não a nota; o comportamento real do Lumi (por exemplo, `70.000` ou `R$ 70.000` no `####`) só aparece na baseline.
+
+## 10. Modelo fundido e formato de chaves
+
+`scripts/check_merged_keys.py` carrega a nativa na CPU, injeta pesos aleatórios nos 71 `lora_B`, funde com `merge_and_unload`, salva com `save_pretrained` e compara com o `model.safetensors` original (resultado em `runs/phase0/merged_keys.json`).
+
+- **Chaves iguais ao original:** 263 de 263, prefixos `backbone` e `lm_head`, mesmas formas e dtypes (BF16), nenhum `lora_`/`base_layer` sobrando. A nativa renomeia `backbone`→`model` ao carregar e desfaz ao salvar.
+- **Valores:** exatamente 71 tensores mudaram (os `in_proj`, `up_proj`, `down_proj`, `q/k/v/o_proj` alvo); o salvo é igual, bit a bit, ao fundido em memória. A nativa recarrega o diretório sem chaves faltando nem sobrando.
+- **O `config.json` salvo é diferente do original:** a nativa troca `hybrid_override_pattern` por `layers_block_type`, remove `num_hidden_layers` e acrescenta campos de MoE/MTP com valores padrão (`n_routed_experts: 8`, `mamba_ssm_cache_dtype: float32` etc.). O `auto_map` permanece. Quem carregar o modelo com o código do repositório precisa do `config.json` original, não do salvo. **Para entregar o modelo fundido: pesos salvos pela nativa, mais o `config.json`, o `generation_config.json` (com `eos_token_id: [2, 11]` se for decidido), o tokenizer e os `.py` copiados do repositório original.**
+- **Não testado:** carregar o diretório entregue com `trust_remote_code=True` e gerar. As chaves são idênticas, então o carregamento do código do repositório deve funcionar, mas isso é inferência. Vale um teste na fase 5 com o modelo realmente treinado.
+
+## 11. Memória e velocidade (A-14)
+
+Medido em 2026-11-06 na RTX 4090 sem outro usuário (o `nvidia-smi` mostra só o processo da medição no início e no fim). Dados brutos em `runs/phase0/train_resources.jsonl` e `runs/phase0/gen_resources.jsonl` (gitignored); scripts `scripts/measure_train.py` e `scripts/measure_generate.py`, retomáveis.
+
+### Treino
+
+Passo completo (forward com loss, backward, AdamW), implementação nativa, pesos BF16, autocast BF16 como no Trainer com `bf16=True`, adaptador em FP32, gradient checkpointing `use_reentrant=False`, `use_cache=False`. Tokens aleatórios de comprimento cheio, sem padding, loss em todas as posições. Três passos cronometrados depois de um de aquecimento.
+
+| Batch (sequências × tokens) | LoRA r=16: pico / tokens/s | DoRA r=32: pico / tokens/s |
+| --- | --- | --- |
+| 1 × 1.024 | 9,4 GiB / 4.504 | 9,6 GiB / 1.536 |
+| 2 × 1.024 | 11,1 GiB / 4.304 | 11,3 GiB / 1.977 |
+| 4 × 1.024 | 14,7 GiB / 4.108 | 14,9 GiB / 2.294 |
+| 8 × 1.024 | 21,7 GiB / 4.046 | 21,9 GiB / 2.509 |
+| 4 × 2.048 | 21,7 GiB / 4.025 | 21,9 GiB / 2.502 |
+| 12 × 1.024, 6 × 2.048 | falta de memória | falta de memória |
+
+- **A memória depende só de batch × comprimento:** 7,6 GiB (LoRA r=16) a 7,8 GiB (DoRA r=32) fixos mais 1,72 GiB por 1.000 tokens, igual nos quatro braços. 8 × 1.024 e 4 × 2.048 dão o mesmo pico. O limite é 8.192 tokens por passo; 12.288 dá falta de memória em todos os braços. Os logits em FP32 e o gradiente deles pesam muito nessa inclinação.
+- **A GPU tem 23,1 GiB livres depois do contexto CUDA.** Com 8.192 tokens o pico reservado é 22,3 GiB, ou seja, menos de 1 GiB de folga. Por isso o batch físico fixado é 4 sequências: com os dados em até 1.000 tokens, ficam em cerca de 15 GiB; no teto de 2.048 tokens por sequência, continuam cabendo (21,9 GiB).
+- **`r` quase não muda nada:** 0,2 GiB de memória entre r=16 e r=32; a velocidade é igual até a terceira casa.
+- **LoRA já é limitado por computação:** a vazão cai de 4.504 (batch 1) para 4.046 tokens/s (batch 8). 4.100 tokens/s equivalem a ~100 TFLOP/s efetivos (6 × parâmetros × tokens, com o forward refeito pelo checkpointing).
+- **DoRA custa 1,8 vez o tempo do LoRA por token com batch 4** (2.294 contra 4.108 tokens/s), e sobe até 2.509 com batch 8 porque amortiza o cálculo da norma de pesos. Com batch 1 é 2,9 vezes mais lento.
+- **Horas de GPU no pior caso** (18 execuções, 3 épocas sem parada antecipada, dados sem filtrar: 34,8 M de tokens de raciocínio são 75% de uma época de 46,4 M): LoRA 658 M de tokens = 44,5 h; DoRA 501 M = 60,7 h; **total 105 h (4,4 dias contínuos)**. Parada antecipada e os filtros D-06 reduzem isso; a conta usa a velocidade com batch 4.
+- **Limites desta medição:** não inclui o TRL (métricas de entropia e acurácia por token, collator) nem sequências reais com padding e máscara de labels. Medir um passo do `SFTTrainer` no começo da fase 3, antes de confiar na folga.
+
+### Geração
+
+Implementação nativa, modelo BF16 sem adaptador (o fundido tem a mesma forma), greedy, `eos_token_id=[2, 11]`, prompt com o gabarito do Lumi com raciocínio ligado (`<think>\n`) em volta de ids aleatórios, **4.096 tokens novos forçados** (`min_new_tokens=4096`), para o cache chegar ao máximo.
+
+| Prompt | Batch | Pico reservado | ms/passo | Tokens/s (decode) |
+| --- | --- | --- | --- | --- |
+| 1.024 | 8 | 9,8 GiB | 12,7 | 628 |
+| 1.024 | 32 | 16,9 GiB | 21,7 | 1.472 |
+| 1.024 | 48 | 21,6 GiB | 28,1 | 1.709 |
+| 1.024 | 56 | 22,7 GiB | 30,7 | 1.823 |
+| 1.024 | 64 | falta de memória no prefill | | |
+| 512 | 32 | 14,9 GiB | 20,9 | 1.534 |
+| 512 | 64 | 22,6 GiB | 31,9 | 2.008 |
+| 512 | 96 | falta de memória no prefill | | |
+| 256 | 32 | 13,2 GiB | 20,4 | 1.568 |
+| 256 | 64 | 21,6 GiB | 31,0 | 2.064 |
+| 256 | 96 | 23,0 GiB | 44,6 | 2.151 |
+| 256 | 128 | falta de memória no prefill | | |
+
+- **O limite é o estado do Mamba e o prefill, não o cache de atenção.** Cada sequência custa cerca de 82 MiB fixos (ajuste das medidas; o estado SSM em FP32 calculado da config dá 78,75 MiB: 96 cabeças × 80 × 128 × 4 bytes × 21 camadas) mais cerca de 0,19 MiB por token do prompt durante o prefill; o cache de atenção custa só 16 KiB por token (4 camadas). Os três comprimentos seguem essa fórmula (0,27, 0,176 e 0,129 GiB por sequência em 1.024, 512 e 256 tokens). `logits_to_keep=1` já vale na geração.
+- **Maior batch que cabe com 4.096 tokens novos:** 56 (prompt de 1.024), 64 (512) e 96 (256), todos a menos de 1 GiB do limite. A vazão satura em 1,8 a 2,2 mil tokens/s.
+- **Batch recomendado para a avaliação: 32**, com 16,9 GiB de pico reservado no pior caso de 1.024 tokens e 1.470 a 1.570 tokens/s. Prompts mais longos pedem batch menor, por uma regra determinística que só depende do prompt (por exemplo, `batch = min(32, 32.768 // maior_prompt_do_lote)`), ordenando os prompts por comprimento. Isso mantém o tamanho e a ordem fixos, como A-04 exige. Falta medir os comprimentos de prompt reais das provas; o ENEM pode passar de 1.024 tokens.
+- **O custo real é maior que tokens ÷ vazão.** O `generate` em batch só termina quando a sequência mais longa do lote termina, então o tempo de um lote é (maior saída do lote) × ms/passo, e uma saída que entra em loop até 4.096 tokens segura as outras 31. Se 3% das saídas fossem truncadas (hipótese), 62% dos lotes de 32 conteriam ao menos uma. A conta da seção "Custo estimado" do PRD (tokens úteis ÷ 1.000 a 2.000 tokens/s) ignora isso. Cenários, não medidas, a 21,7 ms/passo (batch 32) e 5.113 lotes com raciocínio e 6.853 sem (matriz A-12: 163.610 itens com raciocínio e 219.285 sem):
+
+| Maior saída média por lote | Com raciocínio (A-12) | Sem raciocínio (A-12) |
+| --- | --- | --- |
+| 300 a 800 tokens | | 12 a 33 h |
+| 1.000 tokens | 31 h | |
+| 2.000 tokens | 62 h | |
+| 4.096 tokens (todo lote tem ao menos um truncado) | 126 h | |
+
+  A soma dos dois lados do A-12 fica entre cerca de 43 h e 159 h, contra 13 a 26 h no PRD. A distribuição de comprimentos só sai da baseline; vale rodar primeiro um piloto de algumas centenas de itens para medi-la. Se o piloto confirmar a cauda, as saídas são ficar com esse custo, reduzir o orçamento de A-12, ou trocar o `generate` por um servidor com batching contínuo (o vLLM tem suporte a NemotronH), o que exige reinstalar e repetir a validação de equivalência da seção 5.
+
+## 12. Pendências da fase 0
+
+1. Baseline do Lumi nos dois modos (precisa de aprovação, por passar de 1 hora de GPU). Antes dela, falta escrever o harness (prompts, laço de geração em lotes ordenados, gravação por item) e um piloto para medir o comprimento das saídas.
+2. Medir um passo do `SFTTrainer` (fase 3) e carregar a entrega fundida com `trust_remote_code` (fase 5).
+3. Isolar a causa do erro de padding à esquerda no código do repositório, se for útil. Não é necessário para seguir com a nativa.
+
+## 13. Como reproduzir
 
 ```bash
 source env.sh
 scripts/build_kernels.sh                       # compila os kernels (não foi executado de ponta a ponta; o build real seguiu os mesmos passos à mão)
-LUMI_IMPL=native python -m pytest tests/       # 13 testes
+LUMI_IMPL=native python -m pytest tests/       # 83 testes (13 de modelo na GPU, 70 de extração na CPU)
 PYTHONPATH=src python scripts/compare_impls.py # remote x nativa, geração
 PYTHONPATH=src python scripts/diag_impls.py    # sensibilidade ao padding
+scripts/detach.sh merged-keys PYTHONPATH=src python scripts/check_merged_keys.py   # formato de chaves do fundido (CPU)
+scripts/detach.sh --gpu measure-train PYTHONPATH=src python scripts/measure_train.py       # ~5 min
+scripts/detach.sh --gpu measure-gen PYTHONPATH=src python scripts/measure_generate.py     # ~5 min; outros comprimentos: --prompt-len 512 --ladder ...
 ```
 
 `LUMI_IMPL=remote` roda a suíte no código do repositório; nesse caso o teste de geração falha, como descrito na seção 3.

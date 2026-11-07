@@ -185,13 +185,13 @@ Os nomes foram confirmados na fase 0 com `named_modules()`: o regex casa exatame
 
 **Decisão da fase 0: implementação nativa do Transformers** (`AutoModelForCausalLM` sem `trust_remote_code`). O código do repositório (`modeling_nemotron_h.py`) fica só como referência. Sem padding, as duas implementações calculam o mesmo. O código do repositório erra com padding à esquerda, que o `generate` em batch usa, e seu `generate` quebra no Transformers 5.22.2. A nativa usa os mesmos kernels e para em `<|im_end|>`. Medições, números e limites estão em [discovery.md](discovery.md).
 
-Pendente: confirmar que o modelo fundido salvo pela nativa mantém o formato de chaves esperado por quem carrega o Lumi com o código do repositório (`backbone.` contra `model.`).
+O modelo fundido salvo pela nativa mantém as chaves do original (263 de 263, prefixo `backbone`), mas o `config.json` salvo é outro (`layers_block_type` no lugar de `hybrid_override_pattern`, campos de MoE/MTP com valores padrão). Na entrega, os pesos vêm da nativa e o `config.json`, o tokenizer e os `.py` vêm do repositório original. Carregar a entrega com `trust_remote_code` ainda não foi testado; fica para a fase 5. Detalhes em [discovery.md](discovery.md).
 
 ### Carga e tokenizer
 
 - `eos_token_id=[2, 11]` em toda geração. Sem isso, o `generate` não para em `<|im_end|>`, porque as configs do modelo só listam o id 2.
 - `pad_token="<unk>"` (id 0, o `pad_token_id` do `config.json`). O `tokenizer_config.json` não define esse token, e usar `<|im_end|>` como padding pode mascarar o fim real do turno nos labels.
-- Pesos em BF16: cerca de 8,0 GB nos dois braços, o que deixa cerca de 17,7 GB dos 24 GiB da GPU. Os logits custam cerca de 0,5 GB por 1.000 tokens no batch, antes dos gradientes (131.072 × 4 bytes por token), e cerca de 1 GB com o gradiente deles. Só isso esgotaria a sobra perto de 17.000 tokens por batch, contando o padding; com as ativações, o limite real é menor. A fase 0 mede os valores reais.
+- Pesos em BF16: cerca de 8,0 GB nos dois braços, o que deixa cerca de 17,7 GB dos 24 GiB da GPU. A fase 0 mediu o passo de treino completo: 7,6 a 7,8 GiB fixos mais 1,72 GiB por 1.000 tokens do batch, com gradient checkpointing, e 8.192 tokens por passo é o limite (12.288 dá falta de memória nos quatro braços). A memória depende só de batch × comprimento; os logits em FP32 (131.072 × 4 bytes por token, mais o gradiente) pesam muito nesse total.
 - Testes que comparam dois modelos (código do repositório × nativo, adaptador × fundido) carregam um por vez e salvam os logits, porque dois modelos ocupam cerca de 16 GB antes de qualquer batch.
 
 ### Hiperparâmetros iniciais
@@ -204,7 +204,7 @@ Pendente: confirmar que o modelo fundido salvo pela nativa mantém o formato de 
 | Taxa de aprendizado | 1e-4, varrendo 5e-5 e 2e-4 | NVIDIA usa 1e-4 em LoRA |
 | Otimizador | AdamW com cosseno e warmup de 3% | AdamW e cosseno do Tucano 2; warmup escolhido no projeto (o Tucano 2 usa 10%) |
 | Sequência | 2.048 tokens, sem truncar | Acima do máximo de 1.000 tokens dos dados |
-| Batch | Um único batch físico e efetivo nas 18 execuções, agrupado por comprimento, com acumulação de gradiente | O físico vem do pior caso medido na fase 0 (DoRA, `r=32`, sequências mais longas), para o limite de memória não favorecer um braço |
+| Batch | Batch físico de 4 sequências nas 18 execuções, agrupado por comprimento, com acumulação de gradiente para o efetivo (a definir na fase 3) | Medido na fase 0 no pior caso (DoRA, `r=32`): 4 sequências de 2.048 tokens usam 21,9 GiB de pico, e os dados têm no máximo 1.000 tokens (cerca de 15 GiB). 8 sequências caberiam só até 1.024 tokens, com menos de 1 GiB de folga, por +9% de velocidade no DoRA e nada no LoRA |
 | Épocas | Até 3, com parada antecipada | Escolha do projeto; o Tucano 2 usou 5 |
 | Gradient checkpointing | `use_reentrant=False`, `use_cache=False` | Requisito de memória |
 
@@ -218,7 +218,7 @@ Pendente: confirmar que o modelo fundido salvo pela nativa mantém o formato de 
 | Piloto | 6 (2 métodos × 3 ranks) | 20% | Melhor rank por método |
 | Finalistas | 6 (2 métodos × 3 seeds) | 100% | Melhor adaptador por método |
 
-São 18 execuções e, no pior caso, cerca de 1,2 bilhão de tokens de treino. A fase 0 mede a velocidade e transforma isso em horas de GPU.
+São 18 execuções e, no pior caso (3 épocas sem parada antecipada, dados sem filtrar), cerca de 1,16 bilhão de tokens de treino: 658 M nos braços LoRA e 501 M nos DoRA. Com a velocidade medida na fase 0 com batch 4 (LoRA 4,1 mil tokens/s, DoRA 2,3 mil tokens/s, `r` e comprimento quase não mudam isso), são cerca de 45 h de LoRA e 61 h de DoRA, ou **cerca de 105 h de GPU (4,4 dias contínuos)**, sem contar avaliação. O DoRA custa 1,8 vez o tempo do LoRA por token. As medições estão em [discovery.md](discovery.md).
 
 A seleção usa os conjuntos de validação de A-10, nunca as provas de teste. A loss não basta, porque não mede se o raciocínio melhora a resposta.
 
@@ -247,9 +247,9 @@ Esses conjuntos só entram na avaliação, nunca no treino. O artigo do Tucano 2
 | A-01 | Medir o Lumi v0.2 antes de treinar, nos dois modos. A referência é a baseline medida aqui, porque o harness muda a nota: o Nemotron 3 Nano 4B tem 40,93 no gráfico do CEIA e 39,63 no repositório do IFEval. |
 | A-02 | Rodar os 535 prompts do Portuguese-IFEval com o avaliador oficial e registrar a nota estrita por prompt. Passar a ele só o texto depois de `</think>`, porque a documentação do repositório não diz se a limpeza remove o traço. |
 | A-03 | Rodar MMLU PT (ensino médio e graduação), Global MMLU PT, MMMLU PT e INCLUDE PT com versão e amostra fixadas, usando as provas completas da tabela de conjuntos inferidos abaixo. Não usar `Portuguese-MMLU/*` nem as cópias em `cemig-ceia` e `bench-temp-2`: esses conjuntos têm 8.704 e 29.094 questões de teste, o que tornaria a baseline não comparável ao cartão. |
-| A-04 | Usar temperatura 0, sem exemplos no prompt, com `enable_thinking` declarado e até 4.096 tokens novos nos dois modos. Sem penalidade de repetição, exceto no IFEval, cujo padrão em Transformers é 1,2. Registrar se isso prejudica os traços. Gerar na implementação nativa. Mesmo em temperatura 0, mudar a composição do batch troca o top-1 em cerca de 1,6% das posições (piso de ruído BF16 medido na fase 0), então fixar o tamanho do batch e a ordem dos itens na avaliação. |
-| A-05 | Extrair a resposta só depois de `</think>`. Resposta sem `</think>` ou sem alternativa conta como erro, e a taxa de cada caso vai para o relatório. Testar a extração com casos sintéticos antes da baseline. |
-| A-06 | No GSM8K-PT, pedir a linha final `#### <número>` e usar `strict-match` como nota. Registrar também `flexible-extract`, porque o artigo do Tucano 2 descreve os dois e não diz qual está nas suas tabelas. |
+| A-04 | Usar temperatura 0, sem exemplos no prompt, com `enable_thinking` declarado e até 4.096 tokens novos nos dois modos. Sem penalidade de repetição, exceto no IFEval, cujo padrão em Transformers é 1,2. Registrar se isso prejudica os traços. Gerar na implementação nativa. Mesmo em temperatura 0, mudar a composição do batch troca o top-1 em cerca de 1,6% das posições (piso de ruído BF16 medido na fase 0), então fixar o tamanho do batch e a ordem dos itens na avaliação: batch 32, itens ordenados por comprimento do prompt, e batch menor por regra que só depende do prompt quando 32 × maior prompt passar de 32.768 tokens (limite medido do prefill: 64 × 1.024 dá falta de memória). |
+| A-05 | Extrair a resposta só depois de `</think>`. Resposta sem `</think>` ou sem alternativa conta como erro, e a taxa de cada caso vai para o relatório. Testar a extração com casos sintéticos antes da baseline (feito: `tests/test_extract.py`, 70 casos). |
+| A-06 | No GSM8K-PT, pedir a linha final `#### <número>` e usar `strict-match` como nota. Registrar também `flexible-extract`, porque o artigo do Tucano 2 descreve os dois e não diz qual está nas suas tabelas. Os dois copiam o `gsm8k.yaml` do harness. No dataset, 3 alvos são malformados (`6mph`, `R$ 276.000`, `25%`) e 9 usam `.` de milhar (`2.125`), então a nota estrita não passa de 99,07% para quem responde o inteiro puro; registrar também a leitura PT-BR (`70.000` = 70000) como diagnóstico, sem mudar a nota. |
 | A-07 | Calcular a diferença para a baseline com bootstrap pareado por item, dentro de cada prova: 10.000 reamostras e IC de 95% para cada nota, para a Nota de raciocínio e para o Overall. |
 | A-08 | Medir a forma do modo com raciocínio: fechamento de `</think>`, resposta não vazia, traço não vazio, idioma do traço, truncamento em 4.096 tokens, tokens por resposta (mediana e p95) e, no GSM8K-PT, se o último número do traço é a resposta. |
 | A-09 | Medir recusas nos dois modos em 200 prompts de `harmfull-no-reasoning`, excluindo o prompt que também aparece em `reasoning`. Revisar à mão 50 traços desses prompts, porque o traço pode ter conteúdo nocivo mesmo quando a resposta recusa. |
@@ -259,7 +259,7 @@ Esses conjuntos só entram na avaliação, nunca no treino. O artigo do Tucano 2
 | A-13 | No vencedor, repetir a validação do GSM8K-PT com `temperature=1.0` e `top_p=0.95`, a recomendação do Nemotron para raciocínio, em 3 seeds. O resultado entra no relatório, sem afetar a seleção. |
 | A-14 | Registrar pico de memória, tempo por época e tokens por segundo em cada execução. Medir a memória com `torch.cuda.max_memory_allocated()` e `max_memory_reserved()`. Registrar também os processos do `nvidia-smi` no início e no fim, porque outro usuário na GPU pode distorcer o tempo e causar falta de memória. |
 
-**Custo estimado:** um sistema com raciocínio nas 11 provas (73.095 itens, cerca de 500 tokens por resposta) gera cerca de 37 milhões de tokens, ou 5 a 10 horas a 1.000 ou 2.000 tokens por segundo. A matriz de A-12 soma cerca de 13 a 26 horas, com o modo sem raciocínio incluído. A conta é grosseira, porque o batch pode acelerar bastante, e a fase 0 mede a velocidade real.
+**Custo estimado:** um sistema com raciocínio nas 11 provas tem 73.095 itens, cerca de 37 milhões de tokens a 500 tokens por resposta. A fase 0 mediu a geração em batch na 4090: 1.470 a 1.570 tokens/s com batch 32 e no máximo 1.800 a 2.200 tokens/s com o maior batch que cabe (56 a 96, conforme o prompt). Só que o `generate` em batch termina quando a saída mais longa do lote termina, então uma saída que não fecha até 4.096 tokens segura as outras 31, e o custo real é (maior saída do lote) × 21,7 ms por passo, não tokens úteis ÷ vazão. Como a distribuição de comprimentos ainda não é conhecida, a matriz de A-12 fica **entre cerca de 43 h e 159 h** (com raciocínio, 31 a 126 h; sem raciocínio, 12 a 33 h), contra os 13 a 26 h da primeira estimativa. Um piloto de algumas centenas de itens, antes da baseline completa, mede essa cauda. Cenários e memória por sequência em [discovery.md](discovery.md).
 
 **Conjuntos e amostras do cartão (inferência)**
 
@@ -413,9 +413,9 @@ Estas regras valem para todas as fases.
 - [x] Provar que um adaptador recém-criado não altera os logits.
 - [x] Provar que adaptador ativo e modelo fundido geram logits equivalentes.
 - [x] Provar que a geração para em `<|im_end|>` com `eos_token_id=[2, 11]`.
-- [ ] Testar a extração de resposta conforme A-05 e A-06.
-- [ ] Medir pico de memória, maior batch viável e tokens por segundo por braço, conforme A-14, e fixar o batch do treino no pior caso (DoRA, `r=32`, sequências mais longas).
-- [ ] Medir o maior batch viável na geração, no pior caso de 4.096 tokens novos, porque o cache cresce com a resposta.
+- [x] Testar a extração de resposta conforme A-05 e A-06.
+- [x] Medir pico de memória, maior batch viável e tokens por segundo por braço, conforme A-14, e fixar o batch do treino no pior caso (DoRA, `r=32`, sequências mais longas).
+- [x] Medir o maior batch viável na geração, no pior caso de 4.096 tokens novos, porque o cache cresce com a resposta. Resultado: 56 com prompt de 1.024 tokens, 64 com 512 e 96 com 256; o limite é o estado do Mamba (~82 MiB por sequência) e o prefill, não o cache de atenção.
 - [ ] Medir a baseline do Lumi nos dois modos, conforme A-01 a A-09, inclusive a forma do raciocínio.
 
 **Gate:** todos os testes passam, e a baseline sem raciocínio está a até 1 ponto do cartão ou a diferença está documentada. Se o Lumi com raciocínio já cumprir as metas de forma ou de nota, apresentar isso antes de seguir, porque o problema a resolver muda.
