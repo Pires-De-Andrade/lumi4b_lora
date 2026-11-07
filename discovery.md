@@ -391,14 +391,18 @@ O filtro de 8-gramas só pega a mesma tradução. Os dados do GigaVerbo e o data
 ## 17. Pacote da Thor e autodestilação do Lumi
 
 - **`handoff/thor/`:** `PLANO_THOR.md` (para o Claude Code da Thor), `gen_traces.py` (cliente de `/v1/completions`, retomável), `filter_traces.py`, `pack.sh` e 50.908 problemas embaralhados (5.612 do GSM8K-PT `train` com gabarito e 45.296 do GigaVerbo com referência fraca). Professor: Qwen3-30B-A3B-Thinking-2507, com o começo do raciocínio forçado em português. Testado só contra um servidor falso (`tests/test_thor_pkg.py`); o motor real ainda não.
-- **Autodestilação do Lumi** (`scripts/gen_selfdistill.py`, em andamento): 14.000 problemas com raciocínio (prefill "Vou raciocinar em português.", T=0,6) e 3.000 sem raciocínio, aceitando só o que fecha `</think>`, está em português e acerta a referência. Depois, `build_teacher_dataset.py`, treino e avaliação (`scripts/run_experiment.sh`).
+- **Autodestilação do Lumi** (`scripts/gen_selfdistill.py`; resultado na §20.1, pior que o Lumi): 14.000 problemas com raciocínio (prefill "Vou raciocinar em português.", T=0,6) e 3.000 sem raciocínio, aceitando só o que fecha `</think>`, está em português e acerta a referência. Depois, `build_teacher_dataset.py`, treino e avaliação (`scripts/run_experiment.sh`).
 
 ## 18. Pendências
 
-
-1. Baseline do Lumi nos dois modos (precisa de aprovação, por passar de 1 hora de GPU). Antes dela, falta escrever o harness (prompts, laço de geração em lotes ordenados, gravação por item) e um piloto para medir o comprimento das saídas.
-2. Medir um passo do `SFTTrainer` (fase 3) e carregar a entrega fundida com `trust_remote_code` (fase 5).
-3. Isolar a causa do erro de padding à esquerda no código do repositório, se for útil. Não é necessário para seguir com a nativa.
+1. Baseline do Lumi na suíte de teste (`eval_vllm.py --name base --tasks suite`, depois `card`), pausada para liberar a GPU. Os candidatos também precisam passar pela suíte de teste, não só pela validação.
+2. Resultado da fila da GPU (`queue-gpu`): escala 0,5 e 0,75 do adalberto e o adalberto com limite de 2.048 tokens (§20).
+3. Piloto de tradução (200 questões de ciência) e, se prestar, a tradução em escala (§20).
+4. Entrega da Thor (`thor_out.tar.gz` → `data/thor/`, `prepare_thor.py`, `build_teacher_dataset.py`, treino e avaliação).
+5. Registrar no PRD o que só está aqui: contaminação, validação limpa, adalberto, selfdist.
+6. Revisão humana de `reports/review_d10.md` (D-10), se os dados do GigaVerbo continuarem no treino.
+7. Provas do cartão que faltam: MMLU PT ×2 e IFEval PT (ids desconhecidos). Licença do dataset do adalberto (não declarada: só experimento).
+8. Medir um passo do `SFTTrainer` (fase 3) e carregar a entrega fundida com `trust_remote_code` (fase 5).
 
 ## 19. Como reproduzir
 
@@ -415,6 +419,69 @@ scripts/detach.sh --gpu pilot-gsm8k PYTHONPATH=src python scripts/run_gsm8k.py -
 scripts/detach.sh install-vllm scripts/install_vllm.sh                                      # cria .venv-vllm
 scripts/detach.sh --gpu gsm8k-vllm "VLLM_USE_FLASHINFER_SAMPLER=0 PYTHONPATH=src .venv-vllm/bin/python scripts/run_gsm8k_vllm.py --n 0 --out runs/baseline_gsm8k_vllm"   # ~6 min
 PYTHONPATH=src python scripts/chat.py                                                       # REPL para conversar com o Lumi
+scripts/detach.sh merge-s PYTHONPATH=src python scripts/merge_adapter.py --adapter runs/train/NOME/adapter --out runs/merged/NOME_s050 --scale 0.5   # CPU
+scripts/detach.sh --gpu eval-x scripts/eval_merged.sh NOME_s050                             # avalia fundidos na validação
+PYTHONPATH=src python scripts/prepare_mot_science.py                                       # data/mot_science_en.jsonl
+scripts/detach.sh --gpu translate "VLLM_USE_FLASHINFER_SAMPLER=0 PYTHONPATH=src .venv-vllm/bin/python scripts/translate_traces.py --n 200 --out data/mot_pilot"   # piloto
+PYTHONPATH=src python scripts/filter_translated.py data/mot_pilot                          # descontamina
 ```
 
 `LUMI_IMPL=remote` roda a suíte no código do repositório; nesse caso o teste de geração falha, como descrito na seção 3.
+
+## 20. Resultado do selfdist, levantamento de datasets e ordem seguida
+
+### 20.1 Autodestilação do Lumi (`selfdist`): pior que o Lumi
+
+- **Geração** (`gen_selfdistill.py`, ~1 h): 14.000 problemas com raciocínio forçado em português, 6.742 aceitos (descartados: 4.125 sem um único `</think>`, 1.938 resposta errada ou sem `#### N`, 1.158 truncados, 37 com traço fora do português); 3.000 sem raciocínio, 2.212 aceitos. 603 problemas saíram por duplicar a validação.
+- **Treino:** 6.365 com raciocínio + 2.204 sem raciocínio + 5.544 linhas do GigaVerbo (as mesmas do adalberto) = 14.113 linhas, 5,59 M de tokens. LoRA r=16, lr 1e-4, 1 época, 441 passos, ~18 min. O construtor ganhou `--disjoint-inputs`: sem ele a divisão 70/30 por hash descartava 71% dos exemplos sem raciocínio, porque aqui os problemas de cada modo já eram conjuntos separados.
+- **Resultado** (validação, nota estrita; GSM8K = 676 itens limpos, múltipla escolha = 385):
+
+| Modo | Prova | Lumi | `selfdist` | Diferença (IC 95%) | `adalberto` |
+| --- | --- | --- | --- | --- | --- |
+| thinking | GSM8K | 81,7% | 78,1% | −3,6 (−6,5, −0,7) | 83,3% |
+| thinking | múltipla escolha | 69,6% | 57,9% | −11,7 (−16,4, −7,0) | 62,3% |
+| sem thinking | GSM8K | 77,2% | 77,5% | +0,3 (−1,8, +2,4) | |
+| sem thinking | múltipla escolha | 63,9% | 63,4% | −0,5 (−4,7, +3,6) | |
+
+  Contra o `adalberto` (thinking): GSM8K −5,2 (−8,0, −2,5); múltipla escolha −4,4 (−8,8, 0,0).
+- **Forma:** fecha `</think>` e responde 92,2% (GSM8K) e 79,2% (múltipla escolha); traço em português 99,6% e 93,8%; truncadas 7,8% e 19,7% (o Lumi original trunca 13,8% na múltipla escolha); mediana de 384 e 475 tokens.
+- **Leitura:** aprendeu o idioma e a forma, mas perdeu nota no modo thinking; o modo sem thinking ficou igual ao Lumi. **Hipótese, não testada:** os traços do próprio Lumi com começo forçado em português são piores que o raciocínio livre dele em inglês, então o aluno aprende a forma sem ganhar qualidade. O professor precisa ser mais forte que o aluno (Qwen3-30B na Thor, ou traços do R1 traduzidos).
+
+### 20.2 Levantamento de datasets (buscas em 07/11/2026)
+
+O gargalo é a múltipla escolha (−7,3 do adalberto contra o Lumi pensando); adalberto, selfdist e Thor são quase só matemática do GSM8K.
+
+| Dataset | O que é | Veredito |
+| --- | --- | --- |
+| `recogna-nlp/Bode-reasoning` | 10.287 de treino, raciocínio em português; ~38% são provas | **As provas não servem:** os 3.869 itens de OAB (2.001), BLUEX (605) e ENEM (1.263) têm 8-grama igual ao das nossas provas (100%). Resto: reasoning sintético traduzido (4.337), EduBench proprietário (1.761), matemática (320), 1% a 7% de sobreposição, perguntas abertas, sem licença declarada |
+| `xandykati98/PTBR-Opus-4.6-Reasoning-3000x-filtered` | 2.326 exemplos com `thinking` e `solution` em português; Apache-2.0 declarada | Pequeno; os traços vêm do Claude Opus 4.6, conferir os termos do provedor antes de treinar |
+| `cnmoro/reasoning-v1-20m-portuguese` | 20 M, Apache-2.0, traduzido de um R1-Distill-70B | Perguntas abertas sem gabarito, tradução com erros ("Algumente", "Oligoligo"): arriscado |
+| `AxionLab-Co/ThinkSet-PTBR` | aritmética sintética trivial | Descartar |
+| `rhaymison/orca-math-portuguese-64k` | 64 mil problemas com resposta, Apache-2.0 | Só como fonte de problemas; sem traço |
+
+Não há tradução pronta para português de OpenThoughts, Mixture-of-Thoughts ou OpenR1 (busca na web e no Hub). Um [estudo de traços longos em vários idiomas](https://arxiv.org/html/2508.14828v1) fez SFT com traços ingleses traduzidos (francês, japonês, letão, suaíli) e funcionou; português não foi testado.
+
+**Fonte escolhida: `open-r1/Mixture-of-Thoughts`, subconjunto `science`.** 172.514 linhas, 53.195 questões distintas, todas de múltipla escolha (`A: ...`, `B: ...`), 2 a 4 traços do R1 por questão, resposta em `\boxed{letra}`. Não há gabarito: usei a letra majoritária (≥ 75% de ao menos 3 traços; é um indicador, não verdade). Seleção (`scripts/prepare_mot_science.py`, `lumi_ft/data/mot_science.py`): 37.231 questões e 71.422 traços (até 3.000 tokens), ~99 M de tokens, em `data/mot_science_en.jsonl`. No arquivo 0, a mediana é 1.341 tokens: 35% cabem em 1.024, 68% em 2.048 e 88% em 4.096.
+
+### 20.3 Ordem seguida (aprovada pelo usuário)
+
+1. `selfdist`: feito (acima).
+2. Testes baratos, em fila (`queue-gpu`): escala do adaptador do adalberto em 0,5 e 0,75 (`merge_adapter.py --scale`, só LoRA; `lumi_ft/modeling/lora_scale.py`) e adalberto com limite de 2.048 tokens (`--max-len`; mesmos 5.842 + 3.000 exemplos, 346 descartados em vez de 9.680; 8,8 M de tokens). O limite de 1.024 tokens descartou 34% dos candidatos do adalberto, só ficaram os problemas curtos.
+3. Traduzir os traços: `scripts/translate_traces.py` (Lumi no vLLM, T=0, em blocos de parágrafos; 70% dos problemas com raciocínio, 30% só resposta) e `scripts/filter_translated.py` (8-grama contra as provas e a validação). Um bloco ruim derruba o registro. Registros de múltipla escolha levam o campo `prompt` pronto (`teacher.build_rows`). **Ainda não rodado:** falta o piloto de 200 questões.
+4. GRPO (RL com recompensa verificável): só se sobrar tempo.
+
+Em paralelo, a Thor gera traços com o Qwen3-30B (pacote em `handoff/thor_pacote.tar.gz`); o resultado ainda não voltou.
+
+### 20.4 Caches
+
+Alguns comandos interativos foram rodados sem `env.sh` e o Hugging Face gravou 0,77 GB em `~/.cache/huggingface` (compartilhado com outros projetos). Os 14 repositórios criados hoje foram copiados e comparados byte a byte para `.cache/huggingface` do projeto, e as cópias soltas foram apagadas; o cache de outros projetos não foi tocado. Docker não está disponível (sem permissão no socket, sem sudo). Regra: todo comando em `peft_lora_study` carrega `env.sh`.
+
+### 20.5 GRPO (código pronto, ainda não rodado na GPU)
+
+Desenho (iterações em processos separados, porque a 4090 não comporta o vLLM e o treino ao mesmo tempo): `scripts/run_grpo.sh NOME --init <adaptador do SFT> --iters N` repete: (1) funde o adaptador (`merge_adapter.py`, com `--fast` depois da primeira), (2) `scripts/grpo_rollout.py` gera 8 respostas por prompt com o vLLM (T=0,8, até 2.048 tokens, modo thinking sem começo forçado) e calcula recompensa e vantagem, (3) `scripts/grpo_train.py` atualiza o adaptador. Estimativa: ~18 min por iteração (256 prompts × 8 respostas), 10 iterações em ~3 h. Avaliação do modelo que entra na iteração N a cada `--eval-every`, e completa no fim.
+
+- **Recompensa** (`lumi_ft/train/grpo.py`): 1 só se a resposta fecha um único `</think>`, termina sozinha, o traço está em português e a resposta final bate com o gabarito no formato estrito (`#### N` ou `Resposta: <letra>`); senão 0. Truncada vale 0 e treina com vantagem negativa (ensina a parar).
+- **Vantagem:** recompensa menos a média do grupo, dividida pelo desvio-padrão (`--adv std`, GRPO original) ou sem dividir (`mean`, Dr. GRPO). Grupo com recompensas iguais não treina.
+- **Perda:** PPO por token com corte assimétrico (0,2 / 0,28), sem KL, normalizada pelos tokens de resposta do minibatch. As log-probabilidades antigas vêm de uma passada sem gradiente do próprio treino (a razão começa em 1, sem depender da diferença numérica entre vLLM e Transformers). lr 2e-5 constante, AdamW com o estado guardado entre iterações, 64 respostas por passo.
+- **Prompts** (`scripts/make_grpo_prompts.py`): 5.612 de matemática (GSM8K-PT `train`, gabarito) e as questões de ciência de `mot_science_en.jsonl` traduzidas só no enunciado (`scripts/translate_questions.py`, 4.000, descontaminadas por `filter_translated.py`), metade de cada em cada iteração. O gabarito da múltipla escolha é a letra majoritária dos traços do R1, não a verdade.
+- **Testes:** 9 na CPU (`tests/test_grpo.py`: recompensas, vantagens, seleção de prompts, token de parada, log-probabilidades, gradiente da perda com e sem corte). **Não testado:** `grpo_rollout.py`, `grpo_train.py` e `run_grpo.sh` de ponta a ponta. Um teste de fumaça (1 iteração, 16 prompts × 4 respostas) está na fila (`queue-prep`). Ponto a conferir: se o vLLM inclui o token de parada na resposta (`appended_stop_token` em `rollouts.stats.json`).

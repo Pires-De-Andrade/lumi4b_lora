@@ -1,0 +1,141 @@
+"""GRPO, passo 2: atualiza o adaptador com as respostas e vantagens de `grpo_rollout.py` (roda no ambiente do treino).
+
+Perda por token estilo PPO com corte assimétrico (0,2 / 0,28), sem KL, normalizada pelo total de tokens de resposta do
+minibatch (como no SFT, a acumulação de gradiente dá o mesmo gradiente de um batch único). As log-probabilidades "antigas"
+vêm de uma passada sem gradiente do próprio treino antes de qualquer atualização, então a razão começa em 1 (não depende da
+diferença numérica entre vLLM e Transformers). Só treina nas respostas com vantagem diferente de zero. Um passo do otimizador
+por minibatch de `--mb-seqs` respostas, uma passada pelos dados. AdamW com o estado guardado entre iterações.
+  PYTHONPATH=src python scripts/grpo_train.py --rollouts runs/grpo/x/it000/rollouts.jsonl --adapter-in runs/train/adalberto/adapter --out runs/grpo/x/it000
+"""
+import argparse
+import json
+import math
+import random
+import sys
+import time
+from pathlib import Path
+
+from lumi_ft.train import grpo as R
+from lumi_ft.train import sft
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--rollouts", required=True)
+    ap.add_argument("--adapter-in", required=True)
+    ap.add_argument("--ckpt-in", default="", help="estado do AdamW da iteração anterior (opcional)")
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--lr", type=float, default=2e-5)
+    ap.add_argument("--mb-seqs", type=int, default=64, help="respostas por passo do otimizador")
+    ap.add_argument("--token-budget", type=int, default=3072)
+    ap.add_argument("--max-seq-len", type=int, default=3072)
+    ap.add_argument("--eps-low", type=float, default=0.2)
+    ap.add_argument("--eps-high", type=float, default=0.28)
+    ap.add_argument("--clip", type=float, default=1.0)
+    ap.add_argument("--mask-truncated", action="store_true", help="não treina nas respostas truncadas (padrão: treina, com vantagem negativa)")
+    ap.add_argument("--seed", type=int, default=0)
+    a = ap.parse_args()
+
+    import torch
+
+    from lumi_ft import gpu
+    from lumi_ft.modeling import peft_patch
+    from lumi_ft.modeling.load import load_model
+
+    out = Path(a.out)
+    out.mkdir(parents=True, exist_ok=True)
+    samples = [json.loads(line) for line in Path(a.rollouts).read_text().splitlines() if line.strip()]
+    use = [s for s in samples if s["advantage"] != 0 and (s["finished"] or not a.mask_truncated)
+           and len(s["prompt_ids"]) + len(s["completion_ids"]) <= a.max_seq_len]
+    rows = [{"input_ids": s["prompt_ids"] + s["completion_ids"], "n_prompt": len(s["prompt_ids"]),
+             "loss_end": len(s["prompt_ids"]) + len(s["completion_ids"])} for s in use]
+    adv = [s["advantage"] for s in use]
+    log = out / "train_log.jsonl"
+    info = {"samples": len(samples), "used": len(use), "reward_mean_all": round(sum(s["reward"] for s in samples) / max(1, len(samples)), 4)}
+    print(info, flush=True)
+    if not use:  # nenhum grupo com sinal: o adaptador fica como está
+        import shutil
+        shutil.copytree(a.adapter_in, out / "adapter", dirs_exist_ok=True)
+        gpu.append_jsonl(log, {"event": "sem_sinal", **info})
+        print("nenhuma resposta com vantagem diferente de zero; adaptador copiado sem mudança")
+        return 0
+
+    cfg = json.loads((Path(a.adapter_in) / "adapter_config.json").read_text())
+    if cfg.get("use_dora"):
+        peft_patch.apply()
+    from peft import PeftModel
+
+    torch.manual_seed(a.seed)
+    model = load_model("native")
+    model.config.use_cache = False
+    pm = PeftModel.from_pretrained(model, a.adapter_in, is_trainable=True)
+    params = {n: p for n, p in pm.named_parameters() if p.requires_grad}
+    assert params and all(p.dtype == torch.float32 for p in params.values()), "o adaptador deve estar em FP32"
+    opt = torch.optim.AdamW(list(params.values()), lr=a.lr, betas=(0.9, 0.999), weight_decay=0.0)
+    if a.ckpt_in and Path(a.ckpt_in).exists():
+        state = torch.load(a.ckpt_in, map_location="cpu")
+        opt.load_state_dict(state["opt"])
+    gpu.reset_peak()
+
+    def forward_lp(mb: list[int], grad: bool):
+        b = sft.collate(rows, mb)
+        ids, mask = b["input_ids"].cuda(non_blocking=True), b["attention_mask"].cuda(non_blocking=True)
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            logits = pm(input_ids=ids, attention_mask=mask).logits
+        lps = [R.completion_logprobs(logits[k], ids[k], rows[i]["n_prompt"], rows[i]["loss_end"]) for k, i in enumerate(mb)]
+        return lps
+
+    # 1) log-probabilidades antigas (sem gradiente)
+    t0 = time.time()
+    old: dict[int, torch.Tensor] = {}
+    pm.eval()
+    with torch.no_grad():
+        for mb in sft.micro_batches(rows, list(range(len(rows))), a.token_budget):
+            for i, lp in zip(mb, forward_lp(mb, False)):
+                old[i] = lp.cpu()
+    pm.train()
+    t_old = time.time() - t0
+
+    # 2) um passo do otimizador por minibatch
+    order = list(range(len(rows)))
+    random.Random(a.seed).shuffle(order)
+    t1, steps, clipped_all, ratio_all, n_all = time.time(), 0, 0.0, 0.0, 0
+    for s0 in range(0, len(order), a.mb_seqs):
+        idxs = order[s0: s0 + a.mb_seqs]
+        N = sum(rows[i]["loss_end"] - rows[i]["n_prompt"] for i in idxs)
+        loss_total = 0.0
+        for mb in sft.micro_batches(rows, idxs, a.token_budget):
+            lps = forward_lp(mb, True)
+            loss = sum(R.ppo_clip_loss_sum(lp, old[i].cuda(), adv[i], a.eps_low, a.eps_high) for i, lp in zip(mb, lps)) / N
+            loss.backward()
+            loss_total += float(loss.detach())
+            with torch.no_grad():
+                for i, lp in zip(mb, lps):
+                    r = torch.exp(lp.detach() - old[i].cuda())
+                    ratio_all += float(r.sum())
+                    clipped_all += float(((r < 1 - a.eps_low) | (r > 1 + a.eps_high)).sum())
+                    n_all += r.numel()
+            del lps, loss
+        gnorm = float(torch.nn.utils.clip_grad_norm_(list(params.values()), a.clip))
+        if not math.isfinite(loss_total) or not math.isfinite(gnorm):
+            raise RuntimeError(f"loss ou gradiente não finito: loss={loss_total} gnorm={gnorm}")
+        opt.step()
+        opt.zero_grad(set_to_none=True)
+        steps += 1
+        rec = {"step": steps, "loss": round(loss_total, 5), "grad_norm": round(gnorm, 3), "tokens": N, **gpu.peak_gib()}
+        gpu.append_jsonl(log, rec)
+        print(rec, flush=True)
+    summary = {"event": "end", **info, "steps": steps, "old_logp_seconds": round(t_old), "train_seconds": round(time.time() - t1),
+               "mean_ratio": round(ratio_all / max(1, n_all), 4), "clip_fraction": round(clipped_all / max(1, n_all), 4), **gpu.peak_gib()}
+    gpu.append_jsonl(log, summary)
+    pm.save_pretrained(out / "adapter")
+    tmp = out / "ckpt.tmp"
+    torch.save({"opt": opt.state_dict()}, tmp)
+    tmp.replace(out / "ckpt.pt")
+    print(json.dumps(summary))
+    print("EXIT_OK")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

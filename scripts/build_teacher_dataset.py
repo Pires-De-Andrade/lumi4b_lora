@@ -2,7 +2,7 @@
 
 Os problemas são divididos por hash em 70% para exemplos com raciocínio e 30% para exemplos sem raciocínio (só a
 resposta), para o mesmo problema não aparecer nos dois. Às linhas do professor soma as linhas sem raciocínio do
-GigaVerbo do subconjunto de viabilidade (`--base`), como no treino de viabilidade. Nunca trunca: acima de 1.024 tokens, descarta.
+GigaVerbo do subconjunto de viabilidade (`--base`), como no treino de viabilidade. Nunca trunca: acima de `--max-len` tokens (padrão 1.024), descarta.
 
 Uso: PYTHONPATH=src python scripts/build_teacher_dataset.py --think data/adalberto_think.jsonl \
         --nothink data/adalberto_nothink.jsonl --out data/train_adalberto.parquet --max-think 10000 --max-nothink 3000
@@ -38,6 +38,7 @@ def main() -> int:
     ap.add_argument("--max-think", type=int, default=10_000)
     ap.add_argument("--max-nothink", type=int, default=3_000)
     ap.add_argument("--per-problem", type=int, default=2)
+    ap.add_argument("--max-len", type=int, default=0, help="descarta exemplos com mais tokens que isso (0 = 1.024, o padrão dos dados)")
     ap.add_argument("--base", default="data/train.parquet", help="de onde vêm as linhas sem raciocínio do GigaVerbo (viab)")
     ap.add_argument("--no-base", action="store_true")
     ap.add_argument("--seed", type=int, default=0)
@@ -51,7 +52,7 @@ def main() -> int:
         nothink = [r for r in nothink if GV.bucket(r["problem_id"]) >= 7000]  # os outros 30%
     else:
         assert not ({r["problem_id"] for r in think} & {r["problem_id"] for r in nothink}), "problemas repetidos entre think e nothink"
-    rows, stats = T.build_rows(tok, think, nothink, max_think=a.max_think, max_nothink=a.max_nothink, per_problem=a.per_problem, seed=a.seed)
+    rows, stats = T.build_rows(tok, think, nothink, max_think=a.max_think, max_nothink=a.max_nothink, per_problem=a.per_problem, seed=a.seed, max_len=a.max_len)
     if not a.no_base:
         base = [r for r in pq.read_table(a.base).to_pylist() if r["viab"] and r["mode"] == "nothink"]
         rows += base

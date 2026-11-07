@@ -1,8 +1,9 @@
 """Dados de um professor (outro modelo, ou o próprio Lumi) para o SFT: assinatura de problema, conversão de formato e
 montagem das linhas de treino no mesmo esquema do `train.parquet`.
 
-Registro de entrada: {id, problem_id, question, thought (só com raciocínio), answer, source}. O prompt de treino é sempre
-o da avaliação (`gsm8k.build_prompt(question)`), sem system, para o modelo aprender a seguir a instrução de formato.
+Registro de entrada: {id, problem_id, question, thought (só com raciocínio), answer, source, prompt (opcional)}. O prompt de
+treino é o da avaliação, sem system, para o modelo aprender a seguir a instrução de formato: `gsm8k.build_prompt(question)`,
+ou o campo `prompt` quando o registro o traz (múltipla escolha).
 """
 
 from __future__ import annotations
@@ -48,22 +49,23 @@ def to_hash_format(answer: str, ref: str) -> str | None:
 
 
 def build_rows(tok, think_records: list[dict], nothink_records: list[dict], *, max_think: int = 0, max_nothink: int = 0,
-               per_problem: int = 2, seed: int = 0) -> tuple[list[dict], dict]:
+               per_problem: int = 2, seed: int = 0, max_len: int = 0) -> tuple[list[dict], dict]:
     """Renderiza os registros no esquema do `train.parquet`. Devolve (linhas, contagens). Nunca trunca: o que passa de
-    `MAX_LEN` tokens é descartado e contado."""
-    stats = {"think_in": len(think_records), "nothink_in": len(nothink_records), "too_long": 0, "render_fail": 0}
+    `max_len` tokens (0 = `GV.MAX_LEN`) é descartado e contado."""
+    limit = max_len or GV.MAX_LEN
+    stats = {"think_in": len(think_records), "nothink_in": len(nothink_records), "too_long": 0, "render_fail": 0, "max_len": limit}
     rng = random.Random(seed)
     rows: list[dict] = []
 
     def one(rec: dict, mode: str):
-        user = K.build_prompt(rec["question"])
+        user = rec.get("prompt") or K.build_prompt(rec["question"])  # registros de múltipla escolha trazem o prompt pronto
         try:
             r = (GV.render_example(tok, None, user, rec["answer"], thought=rec["thought"]) if mode == "think"
                  else GV.render_example(tok, None, user, rec["answer"]))
         except AssertionError:
             stats["render_fail"] += 1
             return None
-        if r["n_tokens"] > GV.MAX_LEN:
+        if r["n_tokens"] > limit:
             stats["too_long"] += 1
             return None
         return {"id": rec["id"], "mode": mode, "group": rec["source"], "task_type": "teacher", "bucket": GV.bucket(rec["id"]),

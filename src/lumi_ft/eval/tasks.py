@@ -35,8 +35,8 @@ def _gsm8k(name: str, items: list[dict]) -> Task:
                 lambda rows, thinking: K.summarize(rows, [], thinking=thinking))
 
 
-def _mcq(name: str, items: list[dict]) -> Task:
-    return Task(name, items, M.build_prompt, lambda gen, it, thinking: M.score_row(gen, it, thinking=thinking),
+def _mcq(name: str, items: list[dict], prompt=M.build_prompt) -> Task:
+    return Task(name, items, prompt, lambda gen, it, thinking: M.score_row(gen, it, thinking=thinking),
                 lambda rows, thinking: M.summarize(rows, thinking=thinking))
 
 
@@ -55,7 +55,7 @@ def get_task(name: str, limit: int = 0) -> Task:
     elif name == "mcq_val":
         t = _mcq(name, _read_jsonl(VAL_MCQ))
     elif name in M.LOADERS:
-        t = _mcq(name, M.LOADERS[name]())
+        t = _mcq(name, M.LOADERS[name](), M.build_prompt_en if name == "mmlu_prox_diag_en" else M.build_prompt)
     else:
         raise KeyError(f"tarefa desconhecida: {name}")
     if limit:

@@ -67,3 +67,11 @@ def test_registry_groups_and_unknown_task():
     assert set(M.LOADERS) >= {"mmlu_prox_test", "enem", "bluex", "oab", "global_mmlu_test", "mmmlu_test", "include_test"}
     with pytest.raises(KeyError):
         T.get_task("nao_existe")
+
+
+def test_prompt_en_keeps_marker_and_options():
+    from lumi_ft.eval import mcq as M
+
+    p = M.build_prompt_en({"question": "What is 2+2?", "options": ["3", "4"]})
+    assert p.startswith("Answer the multiple-choice") and "`Resposta: <letter>`" in p and "Question: What is 2+2?" in p and "B) 4" in p
+    assert "Questão:" not in p

@@ -20,9 +20,20 @@ INSTRUCTION = (
 )
 
 
+INSTRUCTION_EN = (
+    "Answer the multiple-choice question below. Show your reasoning and end your answer with a single line in the "
+    "format `Resposta: <letter>`, where <letter> is the chosen option."
+)  # só para o diagnóstico português x inglês; o marcador `Resposta:` fica igual para a extração ser a mesma
+
+
 def build_prompt(item: dict) -> str:
     opts = "\n".join(f"{LETTERS[i]}) {o}" for i, o in enumerate(item["options"]))
     return f"{INSTRUCTION}\n\nQuestão: {item['question'].strip()}\n\n{opts}"
+
+
+def build_prompt_en(item: dict) -> str:
+    opts = "\n".join(f"{LETTERS[i]}) {o}" for i, o in enumerate(item["options"]))
+    return f"{INSTRUCTION_EN}\n\nQuestion: {item['question'].strip()}\n\n{opts}"
 
 
 def _clean(opts: list) -> list[str]:
@@ -37,16 +48,30 @@ def _load(name, cfg, split):
     return ds if split else [r for d in ds.values() for r in d]
 
 
-def load_mmlu_prox(split: str) -> list[dict]:
+def load_mmlu_prox(split: str, lang: str = "pt") -> list[dict]:
     items = []
-    for r in _load("li-lab/MMLU-ProX", "pt", split):
+    tag = f"mmlu_prox_{split}" if lang == "pt" else f"mmlu_prox_{lang}_{split}"
+    for r in _load("li-lab/MMLU-ProX", lang, split):
         opts = [r[f"option_{i}"] for i in range(10)]
         while opts and (opts[-1] is None or str(opts[-1]).strip() in ("", "N/A")):
             opts.pop()  # só alternativas ausentes no fim; as letras não deslocam
         if any(o is None for o in opts) or r["answer_index"] >= len(opts):
             continue
-        items.append({"id": f"mmlu_prox_{split}:{r['question_id']}", "question": r["question"], "options": _clean(opts), "gold": r["answer"]})
+        items.append({"id": f"{tag}:{r['question_id']}", "question": r["question"], "options": _clean(opts), "gold": r["answer"]})
     return items
+
+
+def load_mmlu_prox_diag(lang: str, n: int = 1200, seed: int = 0) -> list[dict]:
+    """Diagnóstico português x inglês: as mesmas `n` questões do teste do MMLU-ProX nos dois idiomas (ids iguais nos dois lados,
+    para o pareamento). Só entram questões válidas nos dois idiomas."""
+    import random
+
+    pt = {i["id"].split(":", 1)[1]: i for i in load_mmlu_prox("test", "pt")}
+    en = {i["id"].split(":", 1)[1]: i for i in load_mmlu_prox("test", "en")}
+    ids = sorted(set(pt) & set(en), key=int)
+    keep = random.Random(seed).sample(ids, min(n, len(ids)))
+    src = pt if lang == "pt" else en
+    return [{**src[q], "id": f"mmlu_prox_diag:{q}"} for q in keep]
 
 
 def load_global_mmlu(split: str) -> list[dict]:
@@ -81,6 +106,8 @@ def _load_choices(name: str, tag: str) -> list[dict]:
 LOADERS = {
     "mmlu_prox_test": lambda: load_mmlu_prox("test"),
     "mmlu_prox_val": lambda: load_mmlu_prox("validation"),
+    "mmlu_prox_diag_pt": lambda: load_mmlu_prox_diag("pt"),
+    "mmlu_prox_diag_en": lambda: load_mmlu_prox_diag("en"),
     "global_mmlu_test": lambda: load_global_mmlu("test"),
     "global_mmlu_dev": lambda: load_global_mmlu("dev"),
     "mmmlu_test": load_mmmlu,
