@@ -425,12 +425,12 @@ Estas regras valem para todas as fases.
 
 ### Fase 1: dados
 
-- [ ] Implementar seleção, filtros, renderização e remoção de sobreposição, conforme D-01 a D-09.
-- [ ] Criar testes comparando exemplos renderizados com o template do Lumi, nos dois modos.
-- [ ] Provar que o prompt é prefixo exato do exemplo nos dois modos, inclusive no caminho do TRL.
-- [ ] Verificar que `labels` cobrem `</think>` e `<|im_end|>`, e que tudo fora da resposta recebe `-100`.
-- [ ] Montar os conjuntos de validação conforme A-10 e registrar os hashes conforme D-11.
-- [ ] Relatar quantas linhas cada filtro removeu, por `task_type`.
+- [x] Implementar seleção, filtros, renderização e remoção de sobreposição, conforme D-01 a D-09.
+- [x] Criar testes comparando exemplos renderizados com o template do Lumi, nos dois modos.
+- [x] Provar que o prompt é prefixo exato do exemplo nos dois modos (o treino usa laço próprio, sem TRL).
+- [x] Verificar que `labels` cobrem `</think>` e `<|im_end|>`, e que tudo fora da resposta recebe `-100`.
+- [x] Montar os conjuntos de validação conforme A-10 e registrar os hashes conforme D-11 (`reports/data_manifest.json`, `reports/val_manifest.json`).
+- [x] Relatar quantas linhas cada filtro removeu, por `task_type` (discovery.md §13).
 - [ ] Fazer a revisão humana de D-10.
 
 **Gate:** 100 amostras renderizadas revisadas, sem erro de template ou máscara, e revisão de D-10 concluída.
@@ -439,12 +439,14 @@ Estas regras valem para todas as fases.
 
 Um treino pequeno mostra se o caminho funciona antes de gastar GPU com a matriz completa.
 
-- [ ] Treinar 1 LoRA com `r=16` e taxa 1e-4 em 10.000 exemplos com raciocínio, estratificados por `task_type`, mais 25% de tokens sem raciocínio.
-- [ ] Comparar adaptador e Lumi, nos dois modos, nos conjuntos de validação de A-10, com IC 95% da diferença.
-- [ ] Medir a forma do raciocínio conforme A-08.
+- [x] Treinar 1 LoRA com `r=16` e taxa 1e-4 em 10.000 exemplos com raciocínio, estratificados por `task_type`, mais 25% de tokens sem raciocínio (486 passos, 21,7 min).
+- [x] Comparar adaptador e Lumi, nos dois modos, nos conjuntos de validação de A-10, com IC 95% da diferença (`reports/compare_viab_vs_base.md`).
+- [x] Medir a forma do raciocínio conforme A-08 (fecha `</think>`, idioma do traço, truncamento, tokens).
 - [ ] Ler 50 respostas e registrar o que os números não mostram.
 
 **Gate:** ao menos 95% das respostas fecham `</think>`, ao menos 90% dos traços estão em português e a nota na validação do GSM8K-PT tem IC 95% da diferença acima de 0 contra o Lumi sem raciocínio. Se falhar, parar e decidir entre mais dados, traços gerados e verificados (outro PRD) ou encerrar.
+
+**Resultado de 2026-11-07: o gate falhou na nota e passou na forma.** Forma: 99,7% das respostas fecham `</think>` e trazem texto (99,2% na múltipla escolha; o Lumi: 95,4% e 86,2%), 99,7% dos traços em português (o Lumi: 0%) e truncamento de 0,3% (o Lumi: 4,7% e 13,8%). Nota com raciocínio contra o Lumi sem raciocínio, GSM8K-PT validação: 71,5% contra 81,4% no strict (−9,9, IC 95% [−12,7, −7,1]) e 80,3% contra 81,5% no flexível (−1,2, [−3,4, +1,0]); múltipla escolha: 43,4% contra 63,9% (−20,5) no strict e 53,0% contra 63,4% (−10,4) no flexível. Parte da queda do strict é formato (a resposta sai em prosa depois do `</think>`, sem `#### N` ou `Resposta: X`), mas não toda: com a leitura mais generosa (qualquer letra no texto), a múltipla escolha fica em 55,1% contra 69,6% do Lumi. O modo sem raciocínio também piorou (GSM8K strict −20,2, flexível −3,9; múltipla escolha flexível −6,8). Decisão pendente do usuário; ver [discovery.md](discovery.md) §15.
 
 ### Fase 3: varreduras
 

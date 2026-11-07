@@ -1,0 +1,252 @@
+{
+ "built_at": "2026-11-07 12:51:45",
+ "seconds": 91,
+ "git_commit": "c43791fff27ce60f26690886f77c7beae0139ce6",
+ "args": {
+  "out": "data",
+  "limit": 0,
+  "seed": 0,
+  "ngram": 8,
+  "valid_frac": 0.02,
+  "viab_reasoning": 10000
+ },
+ "tokenizer_revision": "27b30f40b930fd05cee5e1c1f8790f70fa5b816d",
+ "gigaverbo_snapshot": "845713c9330519809c104fa904481c57ae948789",
+ "filters": {
+  "max_len": 1024,
+  "min_score_nonreasoning": 4.0,
+  "residue_regex": "contexto fornecido|resposta fornecida",
+  "language": "shape.trace_language, descarta ['en', 'mixed']",
+  "ngram": 8,
+  "dedupe": "prompt normalizado; fica o de maior instruct_score"
+ },
+ "decontam_sources": {
+  "Polygl0t/gsm8k-pt|None|test": {
+   "items": 1295
+  },
+  "li-lab/MMLU-ProX|pt|test": {
+   "items": 11759
+  },
+  "li-lab/MMLU-ProX|pt|validation": {
+   "items": 70
+  },
+  "eduagarcia/enem_challenge|None|None": {
+   "items": 1432
+  },
+  "nicholasKluge/BLUEX_without_images|None|None": {
+   "items": 724
+  },
+  "eduagarcia/oab_exams|None|None": {
+   "items": 2210
+  },
+  "CohereLabs/Global-MMLU|pt|test": {
+   "items": 14042
+  },
+  "CohereLabs/Global-MMLU|pt|dev": {
+   "items": 285
+  },
+  "openai/MMMLU|PT_BR|test": {
+   "items": 14042
+  },
+  "CohereLabs/include-base-44|Portuguese|test": {
+   "items": 551
+  },
+  "CohereLabs/include-base-44|Portuguese|validation": {
+   "items": 30
+  }
+ },
+ "decontam_index": {
+  "ngrams": 2964512,
+  "items": 46440
+ },
+ "reasoning_funnel": {
+  "total": {
+   "total": 78249,
+   "math_reasoning": 66067,
+   "reasoning": 12182
+  },
+  "single_turn": {
+   "total": 78249,
+   "math_reasoning": 66067,
+   "reasoning": 12182
+  },
+  "trace_ok": {
+   "total": 78249,
+   "math_reasoning": 66067,
+   "reasoning": 12182
+  },
+  "dedup": {
+   "total": 75069,
+   "math_reasoning": 62898,
+   "reasoning": 12171
+  },
+  "no_residue": {
+   "total": 67618,
+   "math_reasoning": 55596,
+   "reasoning": 12022
+  },
+  "last_number": {
+   "total": 60346,
+   "math_reasoning": 48324,
+   "reasoning": 12022
+  },
+  "language_pt": {
+   "total": 60269,
+   "math_reasoning": 48260,
+   "reasoning": 12009
+  },
+  "decontam": {
+   "total": 58424,
+   "math_reasoning": 46564,
+   "reasoning": 11860
+  },
+  "length_ok": {
+   "total": 57754,
+   "math_reasoning": 46528,
+   "reasoning": 11226
+  }
+ },
+ "render_failures": {},
+ "nonreasoning": {
+  "general": {
+   "budget_tokens": 4402372,
+   "got_tokens": 4402379,
+   "shortfall": false,
+   "candidates": 271499,
+   "rows_in_shard": 411992,
+   "multi_turn": 178,
+   "decontam": 153,
+   "length": 33,
+   "dup": 27
+  },
+  "structured": {
+   "budget_tokens": 733728,
+   "got_tokens": 733999,
+   "shortfall": false,
+   "candidates": 123464,
+   "rows_in_shard": 163542,
+   "decontam": 2
+  },
+  "system_prompts": {
+   "budget_tokens": 733728,
+   "got_tokens": 733857,
+   "shortfall": false,
+   "candidates": 14961,
+   "rows_in_shard": 20512,
+   "dup": 238,
+   "decontam": 3
+  },
+  "rewriting": {
+   "budget_tokens": 733728,
+   "got_tokens": 733775,
+   "shortfall": false,
+   "candidates": 25542,
+   "rows_in_shard": 29150,
+   "decontam": 35,
+   "dup": 60
+  },
+  "summarization": {
+   "budget_tokens": 733728,
+   "got_tokens": 734219,
+   "shortfall": false,
+   "candidates": 35888,
+   "rows_in_shard": 128669,
+   "length": 67,
+   "decontam": 14
+  },
+  "math": {
+   "budget_tokens": 917161,
+   "got_tokens": 917218,
+   "shortfall": false,
+   "candidates": 173044,
+   "rows_in_shard": 220042,
+   "decontam": 132,
+   "length": 2
+  },
+  "retrieval": {
+   "budget_tokens": 917161,
+   "got_tokens": 917567,
+   "shortfall": false,
+   "candidates": 242381,
+   "rows_in_shard": 494417,
+   "decontam": 50,
+   "length": 9
+  }
+ },
+ "train": {
+  "nothink/general": {
+   "examples": 15256,
+   "tokens": 4320073
+  },
+  "nothink/math": {
+   "examples": 2454,
+   "tokens": 898527
+  },
+  "nothink/retrieval": {
+   "examples": 2089,
+   "tokens": 898426
+  },
+  "nothink/rewriting": {
+   "examples": 6761,
+   "tokens": 718480
+  },
+  "nothink/structured": {
+   "examples": 1615,
+   "tokens": 717880
+  },
+  "nothink/summarization": {
+   "examples": 1317,
+   "tokens": 718279
+  },
+  "nothink/system_prompts": {
+   "examples": 1837,
+   "tokens": 720314
+  },
+  "think/reasoning": {
+   "examples": 56598,
+   "tokens": 26962074
+  }
+ },
+ "valid": {
+  "nothink/general": {
+   "examples": 312,
+   "tokens": 82306
+  },
+  "nothink/math": {
+   "examples": 51,
+   "tokens": 18691
+  },
+  "nothink/retrieval": {
+   "examples": 43,
+   "tokens": 19141
+  },
+  "nothink/rewriting": {
+   "examples": 138,
+   "tokens": 15295
+  },
+  "nothink/structured": {
+   "examples": 33,
+   "tokens": 16119
+  },
+  "nothink/summarization": {
+   "examples": 27,
+   "tokens": 15940
+  },
+  "nothink/system_prompts": {
+   "examples": 38,
+   "tokens": 13543
+  },
+  "think/reasoning": {
+   "examples": 1156,
+   "tokens": 552756
+  }
+ },
+ "viab": {
+  "examples": 15544,
+  "tokens": 6347560
+ },
+ "sha256": {
+  "train": "514ffaa88ef3de8cb1add3ef079025d8716f0ea5b4c7f5827718d322b40ff970",
+  "valid": "46ffd5f6a6b667851386e027e4100e0cb4bf3d75538ad10d4ea33f5dfa1cf16b"
+ }
+}

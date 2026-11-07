@@ -3,7 +3,7 @@
 __pycache__/
 *.pyc
 .env
-data/
+/data/
 comparacao.md
 tools/
 runs/

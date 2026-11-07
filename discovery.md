@@ -259,13 +259,90 @@ Diferença pareada (com − sem raciocínio): +3,71 pontos, IC 95% [+1,85, +5,56
 
 Fused cross-entropy (Liger) para liberar memória dos logits e permitir batch maior; `torch.compile`; empacotamento de sequências; FP8 (treino ou pesos no vLLM, que mudaria a numérica contra o BF16 de A-11); ajuste fino de `max_num_seqs` e `gpu_memory_utilization`; vLLM com adaptador LoRA sem fundir. O modelo fundido para o vLLM precisa do `config.json` original (a seção 10 mostra que o salvo pela nativa difere).
 
-## 13. Pendências da fase 0
+## 13. Fase 1: dados
+
+Código em `src/lumi_ft/data/` e `scripts/build_dataset.py`, `scripts/build_validation.py`; testes em `tests/test_data.py` (29). Saída em `data/` (fora do Git) e `reports/data_manifest.json`, `reports/val_manifest.json` (hashes).
+
+### Template do Lumi (D-01 a D-03)
+
+- Com raciocínio, o prompt (`...<|im_start|>assistant\n<think>\n`) é prefixo exato do exemplo renderizado, em texto e em ids. O template escreve `traço\n</think>\nresposta<|im_end|>\n`; o dataset traz `</think>\n\n`, então o traço e a resposta vão em `reasoning_content` e `content` (D-02).
+- Sem raciocínio, o prompt termina em `<think></think>` e o exemplo é `prompt + resposta<|im_end|>\n`. Com `enable_thinking=True` e sem `reasoning_content`, o template também escreve `<think></think>`.
+- A loss cobre do fim do prompt até o último `<|im_end|>` (id 11), inclusive; o `\n` depois dele fica de fora. `render_example` falha se o prompt não for prefixo; 0 falhas de renderização nos 78 mil exemplos.
+- Cada exemplo guarda só `input_ids`, `n_prompt` e `loss_end`; os labels saem daí (`train/sft.py: labels_for`, igual a `render_example`, testado).
+
+### Funil do subset `reasoning` (78.249 linhas)
+
+| Etapa | Restam | Removidas | Observação |
+| --- | --- | --- | --- |
+| Um turno, formato `<think>...</think>` válido | 78.249 | 0 | todas |
+| Prompts duplicados (D-06; fica o de maior `instruct_score`) | 75.069 | 3.180 | o PRD contou 3.112 linhas duplicadas |
+| Resíduo do pipeline ("contexto fornecido", "resposta fornecida") | 67.618 | 7.451 | 9,9%; o PRD estimou 11,4% com regex mais larga |
+| Último número do traço fora da resposta (D-07, só `math_reasoning`) | 60.346 | 7.272 | 11,6% da matemática: em geral o traço só repete o enunciado |
+| Traço em inglês ou misto (D-09, `shape.trace_language`) | 60.269 | 77 | 0,1%: os traços do dataset já são em português |
+| 8-gramas em comum com as provas (D-05) | 58.424 | 1.845 | 3,1% |
+| Mais de 1.024 tokens renderizados (D-08, descarta, nunca trunca) | 57.754 | 670 | o limite inclui o prompt e o system |
+
+Por tipo: `math_reasoning` 66.067 → 46.528 e `reasoning` 12.182 → 11.226.
+
+- **Descontaminação:** índice de 2.964.512 8-gramas de palavras de 46.440 itens: GSM8K-PT `test`, MMLU-ProX PT (`test` e `validation`), ENEM, BLUEX, OAB, Global-MMLU PT (`test` e `dev`), MMMLU PT, INCLUDE PT (`test` e `validation`). O `train` do GSM8K-PT fica de fora de propósito (é a fonte da validação). **Faltam o MMLU PT (ensino médio e graduação) e o IFEval PT**, cujos ids o PRD não dá; o MMLU PT é tradução do MMLU como o Global-MMLU e o MMMLU, então a maior parte do risco está coberta, mas não é a mesma coisa.
+- **Detector de idioma:** a heurística `trace_language` (lista de palavras funcionais), não um detector de verdade. Como removeu só 77, o efeito é pequeno em qualquer caso.
+- **Revisão dos filtros (D-06):** olhei 3 amostras de cada filtro numa prévia de 3.000 linhas (resíduo, último número, descontaminação): faziam o que se espera. Uma revisão maior dos removidos está em `runs/data/removed_samples.json` (15 por filtro) e não foi feita.
+
+### Mistura e conjuntos
+
+- **Sem raciocínio** (25% dos tokens, sorteio de semente fixa, `instruct_score` ≥ 4,0, um turno, sem tags `<think>`, sem prompts duplicados, sem 8-gramas das provas, até 1.024 tokens): general 4,40 M, structured 0,73 M, system_prompts 0,73 M, rewriting 0,73 M, summarization 0,73 M, math 0,92 M e retrieval 0,92 M de tokens, todos no orçamento. Um shard de cada subset basta.
+- **`train.parquet`:** 87.927 exemplos, 36,0 M de tokens, 75,0% deles com raciocínio. **`valid.parquet`** (2% por estrato, D-11): 1.798 exemplos, 0,7 M de tokens. **Viabilidade:** 15.544 exemplos (10.000 com raciocínio mais os sem raciocínio até 25% dos tokens), 6,35 M de tokens. Os subconjuntos de 20% são `bucket < 2.000` (hash estável do id).
+- **Validação de A-10** (`data/val_gsm8k.jsonl`, `data/val_mcq.jsonl`): 1.000 itens do GSM8K-PT `train` escolhidos entre os 2.718 de 7.463 (36,4%) sem 8-gramas em comum com o treino final, mais 385 de múltipla escolha (Global-MMLU `dev` 285, MMLU-ProX `validation` 70, INCLUDE `validation` 30), nenhum com 8-grama no treino.
+- **Revisão humana (D-10):** `reports/review_d10.md` tem 200 traços (100 de cada tipo). **Ninguém revisou ainda.** O PRD exige a revisão antes do treino completo.
+
+### Provas de múltipla escolha
+
+Carregadores em `eval/mcq.py`, testados contra as contagens do PRD: MMLU-ProX PT 11.759, Global-MMLU PT 14.042, MMMLU PT 14.042, INCLUDE PT 551, OAB 2.210. **ENEM 1.431 de 1.432 e BLUEX 722 de 724:** os itens cujo `answerKey` não está entre os rótulos das alternativas saem (não dá para pontuar). O MMLU-ProX tem de 3 a 10 alternativas (9.826 de 11.759 com 10); o prompt usa as letras A a J conforme o item.
+
+## 14. Treino: laço, memória e retomada
+
+Código em `src/lumi_ft/train/sft.py` e `scripts/train_sft.py`; testes em `tests/test_train.py` (15). Laço próprio, sem TRL, para controlar memória e acumulação.
+
+- **Loss normalizada pelo total de tokens-alvo do batch efetivo**: a soma por micro-batch dividida pelo total do batch de 32 sequências. Testado: a loss acumulada é igual à de um batch único, qualquer que seja o fatiamento (LoRA com micro-batches de 2, DoRA de 1). Os logits não são copiados (desloca-se o label, não o logit).
+- **Micro-batches por orçamento de tokens** (2.048 no LoRA, 1.024 no DoRA), ordenados por comprimento dentro do batch efetivo: pares de comprimento parecido, pouco padding.
+- **Retomável:** `ckpt/last.pt` (adaptador, otimizador, passo) a cada 200 passos e ao fim da época; a ordem dos dados só depende de (semente, época). Testado: um run interrompido no passo 3 e retomado do 2 reproduz o passo 3 com a mesma loss (0,7368) e o mesmo lr.
+- **Medido nos dados reais (smoke de 3 a 5 passos):** LoRA r=16: loss inicial 0,58 a 0,74 por token (o modelo base já prevê bem esses traços), 5,6 a 5,7 mil tokens/s (a medição sintética deu 5,8), pico de 18,9 GiB alocados e 19,8 GiB reservados de 23,1 livres. DoRA r=16: loss 0,63, 0,58 e 0,73 nos mesmos passos (igual ao LoRA, como deve ser no começo), sem NaN (o patch funciona no laço real), 15,9 GiB, ~2,1 mil tokens/s (abaixo dos 2,5 mil sintéticos: micro-batches de 1 sequência).
+- **Horas por época completa** (36,0 M de tokens): LoRA ~1,8 h; DoRA ~4,6 h a 2,1 mil tokens/s.
+
+## 15. Fase 2: viabilidade (gate falhou na nota)
+
+LoRA `r=16`, lr 1e-4, 1 época nos 15.544 exemplos de viabilidade (10.000 com raciocínio): 486 passos, 21,7 min, pico de 19,0 GiB. Loss de treino 0,53 (primeiro décimo) para 0,40 (último); loss de validação 0,443. Fundido em BF16 com `scripts/merge_adapter.py` (263 chaves, 71 tensores alterados) e avaliado no vLLM nos dois conjuntos de validação (1.000 itens do GSM8K-PT `train`, 385 de múltipla escolha). Dados brutos em `runs/eval/{base,viab}/`; comparações em `reports/compare_viab_vs_base.md`.
+
+| | Lumi, com raciocínio | Viabilidade, com raciocínio | Lumi, sem | Viabilidade, sem |
+| --- | --- | --- | --- | --- |
+| GSM8K val, nota estrita | 85,7% | 71,5% | 81,4% | 61,2% |
+| GSM8K val, nota flexível | 85,7% | 80,3% | 81,5% | 77,6% |
+| Múltipla escolha val, estrita | 69,6% | 43,4% | 63,9% | 43,1% |
+| Múltipla escolha val, flexível | 69,4% | 53,0% | 63,4% | 56,6% |
+| Múltipla escolha val, letra em qualquer lugar | 69,6% | 55,1% | 63,9% | 56,6% |
+| Fecha `</think>` e responde (GSM8K / múltipla escolha) | 95,4% / 86,2% | 99,7% / 99,2% | | |
+| Traço em português (heurística) | 0% | 99,7% / 100% | | |
+| Truncadas em 4.096 (GSM8K / múltipla escolha) | 4,7% / 13,8% | 0,3% / 0,8% | 2,0% / 1,0% | 3,3% / 2,3% |
+
+**O que funcionou (forma):** o traço sai em português, `</think>` fecha e há texto depois quase sempre, e os loops que truncavam o Lumi quase sumiram. As metas de forma do PRD (≥ 95% e ≥ 90%) estão cumpridas.
+
+**O que falhou (nota):** com raciocínio, a diferença contra o Lumi sem raciocínio no GSM8K de validação é −9,9 pontos no strict (IC 95% [−12,7, −7,1]) e −1,2 no flexível ([−3,4, +1,0]); na múltipla escolha, −20,5 e −10,4. O gate exige IC acima de 0.
+
+**Quanto é formato e quanto é capacidade:**
+- Formato: o modelo escreve `Resposta: B` ou o número dentro do traço e, depois do `</think>`, responde em prosa ("a resposta correta é B", "60 dias."). A extração só olha depois do `</think>` (A-05) e exige `#### N` ou `Resposta: <letra>` (A-06), então o strict falha em 10,7% (GSM8K) e 26% (múltipla escolha) com raciocínio, e 23% e 32% sem. Os dados de treino não têm esses marcadores, e o SFT enfraqueceu o seguimento da instrução de formato (o Lumi segue em ~98% dos casos que terminam). Isso também derrubou o modo sem raciocínio: strict −20 pontos nas duas provas.
+- Capacidade: com a leitura mais generosa (qualquer letra em qualquer lugar do texto), a múltipla escolha com raciocínio é 55,1% contra 69,6% do Lumi, e sem raciocínio 56,6% contra 63,9%. No GSM8K (flexível), 80,3% contra 85,7% com raciocínio e 77,6% contra 81,5% sem. Ou seja, há perda real de acerto, maior fora de matemática. O treino tem 84% de `math_reasoning`, traços mais curtos que os do Lumi (GSM8K de validação: mediana de 285 tokens contra 358 do Lumi no GSM8K de teste, média de 530), e, no dataset, 4.007 dos 12.182 exemplos `reasoning` usam prompts de `harmfull-reasoning` (as amostras lidas são recusas). É o risco que o PRD já registrou (o Tucano 3.7B Think, com os mesmos dados, ganhou 2,89 pontos no GSM8K-PT e perdeu nas outras provas).
+- Limites desta leitura: uma execução, 1 época, uma taxa; não separei quanto da perda vem do idioma do traço, do comprimento menor ou da deriva do LoRA sobre dados diferentes da distribuição do Lumi. Li ~5 saídas, não 50 (item da fase 2 não cumprido).
+
+**Opções que o PRD prevê (gate):** mais dados e ajustes (a varredura de taxa e mistura da matriz reduzida), traços gerados e verificados (outro PRD), ou encerrar.
+
+## 16. Pendências
+
 
 1. Baseline do Lumi nos dois modos (precisa de aprovação, por passar de 1 hora de GPU). Antes dela, falta escrever o harness (prompts, laço de geração em lotes ordenados, gravação por item) e um piloto para medir o comprimento das saídas.
 2. Medir um passo do `SFTTrainer` (fase 3) e carregar a entrega fundida com `trust_remote_code` (fase 5).
 3. Isolar a causa do erro de padding à esquerda no código do repositório, se for útil. Não é necessário para seguir com a nativa.
 
-## 14. Como reproduzir
+## 17. Como reproduzir
 
 ```bash
 source env.sh

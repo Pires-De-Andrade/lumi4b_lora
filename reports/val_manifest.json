@@ -1,0 +1,20 @@
+{
+ "gsm8k_val": {
+  "items": 1000,
+  "clean_pool": 2718,
+  "train_items": 7463,
+  "sha256": "516d85844053e1535647fe03fbf3fd280ab8370c3fe0001f5dda87c869e3cdf2"
+ },
+ "mcq_val": {
+  "items": 385,
+  "sources": {
+   "global_mmlu_dev": 285,
+   "mmlu_prox_val": 70,
+   "include_val": 30
+  },
+  "overlap_with_training": [],
+  "sha256": "4a11069b82a5715b6fe9f64fdd5902a380e0e8e445142b5abd4edeb82f4dc73b"
+ },
+ "train_sha256": "514ffaa88ef3de8cb1add3ef079025d8716f0ea5b4c7f5827718d322b40ff970",
+ "seconds": 26
+}
