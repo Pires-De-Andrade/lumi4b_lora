@@ -26,14 +26,15 @@ FEATS = Features({"id": Value("string"), "mode": Value("string"), "group": Value
                   "loss_end": Value("int32"), "input_ids": Sequence(Value("int32"))})
 
 
-def read(p):
-    return [json.loads(line) for line in Path(p).read_text().splitlines() if line.strip()] if p else []
+def read(paths):
+    paths = [paths] if isinstance(paths, str) else (paths or [])
+    return [json.loads(line) for p in paths if p for line in Path(p).read_text().splitlines() if line.strip()]
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--think", required=True)
-    ap.add_argument("--nothink", default="")
+    ap.add_argument("--think", required=True, nargs="+", help="um ou mais jsonl de registros com raciocínio")
+    ap.add_argument("--nothink", default=[], nargs="*", help="um ou mais jsonl de registros sem raciocínio")
     ap.add_argument("--out", required=True)
     ap.add_argument("--max-think", type=int, default=10_000)
     ap.add_argument("--max-nothink", type=int, default=3_000)
@@ -44,12 +45,15 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--disjoint-inputs", action="store_true",
                     help="os problemas de --think e --nothink já são conjuntos separados: não divide por hash (70/30)")
+    ap.add_argument("--split-sources", nargs="*", default=None,
+                    help="divide por hash (70/30) só os registros destas fontes (campo `source`); as outras já vêm separadas. Sem isso, divide todas")
     a = ap.parse_args()
     tok = load_tokenizer()
     think, nothink = read(a.think), read(a.nothink)
     if not a.disjoint_inputs:
-        think = [r for r in think if GV.bucket(r["problem_id"]) < 7000]  # 70% dos problemas
-        nothink = [r for r in nothink if GV.bucket(r["problem_id"]) >= 7000]  # os outros 30%
+        split = None if a.split_sources is None else set(a.split_sources)
+        think = [r for r in think if (split is not None and r["source"] not in split) or GV.bucket(r["problem_id"]) < 7000]  # 70% dos problemas
+        nothink = [r for r in nothink if (split is not None and r["source"] not in split) or GV.bucket(r["problem_id"]) >= 7000]  # os outros 30%
     else:
         assert not ({r["problem_id"] for r in think} & {r["problem_id"] for r in nothink}), "problemas repetidos entre think e nothink"
     rows, stats = T.build_rows(tok, think, nothink, max_think=a.max_think, max_nothink=a.max_nothink, per_problem=a.per_problem, seed=a.seed, max_len=a.max_len)

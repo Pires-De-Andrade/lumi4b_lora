@@ -14,3 +14,7 @@ runs/
 /handoff/thor/.venv-gen/
 /handoff/*.tar.gz
 /handoff/thor/*.tar.gz
+/handoff/thor2/data/
+/handoff/thor2/out/
+/handoff/thor2/.venv-gen/
+/handoff/thor2/*.tar.gz

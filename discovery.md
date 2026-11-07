@@ -396,10 +396,10 @@ O filtro de 8-gramas só pega a mesma tradução. Os dados do GigaVerbo e o data
 ## 18. Pendências
 
 1. Baseline do Lumi na suíte de teste (`eval_vllm.py --name base --tasks suite`, depois `card`), pausada para liberar a GPU. Os candidatos também precisam passar pela suíte de teste, não só pela validação.
-2. Resultado da fila da GPU (`queue-gpu`): escala 0,5 e 0,75 do adalberto e o adalberto com limite de 2.048 tokens (§20).
-3. Piloto de tradução (200 questões de ciência) e, se prestar, a tradução em escala (§20).
-4. Entrega da Thor (`thor_out.tar.gz` → `data/thor/`, `prepare_thor.py`, `build_teacher_dataset.py`, treino e avaliação).
-5. Registrar no PRD o que só está aqui: contaminação, validação limpa, adalberto, selfdist.
+2. Resultados da fila da GPU: DoRA (`adalberto_dora`), Nemotron 3 Nano 4B de referência, `nemo_mix`, GRPO (`grpo1`), `adalberto_lr5e5` e o diagnóstico português x inglês (§20.8 a §20.10). Já avaliados: escala 0,5 e 0,75 e limite de 2.048 tokens (§20.6).
+3. Tradução em escala: o piloto (§20.7) foi aprovado e a tradução de 8.000 questões da NVIDIA roda dentro do `nemo_mix` (§20.9); falta a tradução da entrega da Thor (pacote 2).
+4. Entregas da Thor: pacote 1 (`thor_out.tar.gz` → `data/thor/`, `prepare_thor.py`) e pacote 2 (`thor2_out.tar.gz` → `data/thor2/`; falta o conversor para os registros `ready_pt`/inglês), depois `build_teacher_dataset.py`, treino e avaliação. Os dois pacotes estão rodando na Thor.
+5. ~~Registrar no PRD o que só está aqui~~: feito em 2026-11-07 (§20.10).
 6. Revisão humana de `reports/review_d10.md` (D-10), se os dados do GigaVerbo continuarem no treino.
 7. Provas do cartão que faltam: MMLU PT ×2 e IFEval PT (ids desconhecidos). Licença do dataset do adalberto (não declarada: só experimento).
 8. Medir um passo do `SFTTrainer` (fase 3) e carregar a entrega fundida com `trust_remote_code` (fase 5).
@@ -485,3 +485,72 @@ Desenho (iterações em processos separados, porque a 4090 não comporta o vLLM 
 - **Perda:** PPO por token com corte assimétrico (0,2 / 0,28), sem KL, normalizada pelos tokens de resposta do minibatch. As log-probabilidades antigas vêm de uma passada sem gradiente do próprio treino (a razão começa em 1, sem depender da diferença numérica entre vLLM e Transformers). lr 2e-5 constante, AdamW com o estado guardado entre iterações, 64 respostas por passo.
 - **Prompts** (`scripts/make_grpo_prompts.py`): 5.612 de matemática (GSM8K-PT `train`, gabarito) e as questões de ciência de `mot_science_en.jsonl` traduzidas só no enunciado (`scripts/translate_questions.py`, 4.000, descontaminadas por `filter_translated.py`), metade de cada em cada iteração. O gabarito da múltipla escolha é a letra majoritária dos traços do R1, não a verdade.
 - **Testes:** 9 na CPU (`tests/test_grpo.py`: recompensas, vantagens, seleção de prompts, token de parada, log-probabilidades, gradiente da perda com e sem corte). **Não testado:** `grpo_rollout.py`, `grpo_train.py` e `run_grpo.sh` de ponta a ponta. Um teste de fumaça (1 iteração, 16 prompts × 4 respostas) está na fila (`queue-prep`). Ponto a conferir: se o vLLM inclui o token de parada na resposta (`appended_stop_token` em `rollouts.stats.json`).
+
+### 20.6 Escala do adaptador, limite de 2.048 tokens e estilo de raciocínio
+
+Validação, nota estrita; GSM8K limpo (676) e múltipla escolha (385); diferença contra o Lumi original no mesmo modo.
+
+| Modelo | GSM8K thinking | MCQ thinking | GSM8K sem thinking | MCQ sem thinking |
+| --- | --- | --- | --- | --- |
+| Lumi original | 81,7% | 69,6% | 77,2% | 63,9% |
+| `adalberto` (limite 1.024 tokens) | 83,3% | 62,3% | 79,3% | 58,2% |
+| `adalberto` escala 0,5 | 84,0% | 63,4% | 79,6% | 64,9% |
+| `adalberto` escala 0,75 | 84,0% | 64,4% | 79,1% | 58,7% |
+| `adalberto_L2048` (limite 2.048 tokens) | 82,2% | 64,2% | 81,7% | 55,3% |
+
+- **Escala 0,5 e 0,75:** mantêm o ganho em matemática (+2,4) e não recuperam a múltipla escolha com thinking (−6,2 e −5,2, IC acima de zero na perda). A variação da múltipla escolha sem thinking (64,9% e 58,7%) é compatível com ruído de 385 itens.
+- **Limite de 2.048 tokens:** só 346 exemplos descartados (antes 9.680), mesmos 5.842 + 3.000 exemplos, 8,8 M de tokens. **Não resolveu:** múltipla escolha com thinking 64,2% (−5,5 contra o Lumi, +1,8 contra o `adalberto`, sem significância) e **piorou** a múltipla escolha sem thinking (55,3%, −8,6 contra o Lumi). A matemática sem thinking subiu (81,7%, +4,4). O limite de tokens não é a alavanca.
+- **Estilo de raciocínio** (GSM8K, palavras no traço; marcadores por 1.000 palavras): Lumi original mediana 96 palavras, abre com "We need to", "wait" 0,2, "let me/vamos" 2,3; Qwen3-30B (adalberto) mediana 177, abre com "Certo, vamos", "wait" 1,9, "vamos" 13,4; DeepSeek-R1 (ciência) mediana 610, abre com "Okay, so", "wait" 7,6. O Lumi pensa de forma curta e em forma de plano, diferente do Qwen e do R1. O cartão do Lumi diz que ele parte do Nemotron 3 Nano 4B (CPT de 50 B de tokens com destilação, SFT em português, thinking "deve ficar desligado", sem RL). Hipótese, não testada: traços de estilo diferente ensinam ao Lumi um modo de raciocinar que ele não tem.
+- **Próximo passo escolhido:** professor da mesma família, o Nemotron 3 Nano 30B-A3B (suporta inglês, espanhol, francês, alemão, japonês e italiano, não português): gera em inglês, sem forçar idioma, e traduzimos aqui. Pacote `handoff/thor2/` (plano, cliente, filtro, `pack.sh`, 21.612 prompts: 9.612 de matemática e 12.000 de múltipla escolha), gerado por `scripts/make_thor2_prompts.py` e testado em `tests/test_thor2_pkg.py`. Falta no lado local: converter a saída (`thor2_out.tar.gz`) e traduzir (matemática: só o traço; múltipla escolha: enunciado, alternativas, traço e resposta) com a qualidade que o piloto de tradução mostrar.
+
+### 20.7 Piloto de tradução (200 questões de ciência, Lumi como tradutor)
+
+`scripts/translate_traces.py --n 200` (vLLM, T=0, modo sem thinking, blocos de parágrafos de até 1.800 caracteres), depois `filter_translated.py` (8-grama). 88 s para 200 registros (849 pedidos, 2.848 tok/s), ou seja ~90 min para 12.000.
+
+| Medida | Resultado |
+| --- | --- |
+| Aceitos pelas conferências | 172 de 200 (86%): com raciocínio 125 de 150, só resposta 47 de 50 |
+| Rejeitados (28) | 16 tamanho incompatível, 10 não terminou, 2 alternativas não voltaram |
+| 8-grama contra as provas | 1 removido (171 ficam) |
+| Tamanho PT/EN (caracteres) | mediana 1,04; p5 0,98, p95 1,12 |
+| Números do original presentes na tradução | média 94,7%, mediana 100% (normalizando `3.5` e `3,5`; sem normalizar dava 56%, erro da medida); 16 itens abaixo de 90%, 5 abaixo de 50%; dos 123 números perdidos, 99 têm 1 dígito (provavelmente subscritos como "ZnCl₂" e enumerações; não conferido item a item) |
+| Inglês que sobrou (palavras funcionais) | média 1,2%; nenhum item acima de 15% |
+| Parágrafos | diferença mediana 0; 2 itens com diferença maior que 2 |
+
+- **Defeitos:** 120 dos 125 traços abrem com "Okay, então…" (o "Okay" fica sem traduzir; vem do estilo do R1), "Hmm" vira "Hum"; terminologia técnica errada em química ("S-metil benzotiocato" em vez de "benzotioato de S-metila"); erros leves de gênero ("o integral de linha").
+- **Leitura:** serve para treino (sentido, números e estrutura preservados); o ponto fraco é o vocabulário técnico, menos relevante em matemática. **Não medido:** correção de sentido (só 3 exemplos lidos) e se treinar com o traço traduzido melhora o modelo. Se o treino mostrar que a tradução limita, trocar o tradutor (Qwen3-30B na Thor).
+- Os mesmos scripts traduziram os 4.000 enunciados dos prompts de múltipla escolha do GRPO: 3.739 aceitos (93,5%), 3.715 depois do 8-grama.
+
+### 20.8 GRPO: teste de fumaça e motivo
+
+Teste de fumaça (`run_grpo.sh smoke`, 1 iteração, 16 prompts × 4 respostas, 512 tokens no máximo, adaptador `adalberto`): **a cadeia inteira funcionou** (fundir, gerar com o vLLM, calcular recompensa, treinar, salvar).
+
+| Medida | Valor |
+| --- | --- |
+| Respostas geradas / com vantagem diferente de zero | 64 / 12 |
+| Recompensa média (matemática, múltipla escolha) | 0,125 e 0,031 (quase tudo truncou: o teste usou só 512 tokens, 59 de 64 respostas) |
+| `appended_stop_token` | 0: o vLLM já inclui o token de parada na resposta |
+| Razão da perda no início do treino / fração cortada | 1,0001 / 0 (a passada "antiga" e a nova concordam) |
+| Pico de memória | 20,8 GiB alocados, 22,5 GiB reservados (cabe na 4090, sem folga) |
+| Velocidade | geração 2.896 tok/s; passada antiga 7 s; treino 12 s |
+
+- **Não testado ainda:** a iteração 1 em diante (o estado do AdamW de `ckpt.pt` carregando na próxima iteração, a avaliação intermediária). Conferido na CPU: `merge_adapter.py --fast` leva 8 s; o `ckpt.pt` tem estado para 142 parâmetros (71 módulos × A e B), como esperado. O teste de fumaça não diz nada sobre ganho de nota.
+- **Por que GRPO:** o SFT imita um professor, e nenhuma fonte de professor cobre a múltipla escolha no estilo do Lumi (adalberto e selfdist perderam na múltipla escolha). O GRPO parte do adaptador do SFT e deixa o próprio Lumi gerar, recompensando só a resposta que fecha um único `</think>`, não trunca, tem traço em português e acerta o gabarito. Otimiza direto o que o critério de vitória mede e não depende de traços de professor. Riscos: o gabarito da múltipla escolha é a letra majoritária do R1 (indicador, não verdade), grupos sem sinal (todas certas ou todas erradas) não ensinam, e é caro (~18 min por iteração).
+- **Execução:** `grpo1` (8 iterações a partir de `runs/train/adalberto/adapter`, 256 prompts × 8 respostas, até 2.048 tokens, T 0,8, lr 2e-5), na fila depois do DoRA.
+
+### 20.9 Dados da NVIDIA com raciocínio no estilo do Nemotron (`nemo_mix`)
+
+- **Achado:** o pós-treino de matemática, código e ciência do Nemotron 3 Nano usou o GPT-OSS-120B para gerar os traços, e o raciocínio do Lumi tem esse estilo. No `stem_pt` da NVIDIA, 61.278 de 63.571 traços abrem com "We need to". [`nvidia/Nemotron-SFT-Multilingual-v2`](https://huggingface.co/datasets/nvidia/Nemotron-SFT-Multilingual-v2) (CC-BY-4.0; as partes derivadas do StackOverflow em matemática são CC-BY-SA) traz questões de matemática (33.199), código (34.822) e ciência (63.571) em português do Brasil: enunciado e resposta final traduzidos pelo DeepSeek-V3-0324; **o raciocínio (`reasoning_content`) fica em inglês de propósito** ("decisões de arquitetura do Nemotron 3"). Outros: Nemotron-Science-v1 (origem da ciência, inglês), Nemotron-Math-v2 (inglês), Nemotron-Post-Training-v2 (de, it, fr, es, ja; sem português).
+- **Composição de `stem_pt`:** RQA synthetics 50.701 (química sintética; 45.979 de múltipla escolha; traço mediano de 863 palavras) e GPQA synthetics 12.870 (9.955 de múltipla escolha; mediana 561). Matemática: 28.826 "Math GPT-OSS StackOverflow" (mediana de 2.872 palavras: longo demais) e 4.373 "Math GenSelect" (julgar soluções, não resolver). Domínio: pós-graduação (química sobretudo), mais estreito que as nossas provas; a transferência é incerta.
+- **Seleção** (`lumi_ft/data/nemotron_pt.py`, `scripts/prepare_nemotron_pt.py`): múltipla escolha com 4+ alternativas parseáveis, `\boxed{letra}` válido, traço de até 1.000 palavras, enunciado não repetido: 26.671 (25.705 RQA com 4 alternativas e 966 GPQA com 10). Subconjunto de 8.000: todas as GPQA e 7.034 de RQA (`data/nemotron_pt_mcq_8k.jsonl`).
+- **Pipeline** (`scripts/run_nemo_mix.sh`): (1) `translate_traces.py` traduz **só o raciocínio** (registros `ready_pt`; enunciado e resposta final já estão em português; ~45 min), 70% dos problemas com raciocínio e 30% só com a resposta (sem tradução); (2) `filter_translated.py` (8-grama); (3) `build_teacher_dataset.py` mistura adalberto (matemática, dividido 70/30 por hash) com esses (`--split-sources adalberto`, limite de 2.048 tokens, até 11.500 com raciocínio e 7.000 sem) e as linhas do GigaVerbo; (4) treina e avalia `nemo_mix` (LoRA r=16, lr 1e-4, 1 época). O prompt de treino é o da avaliação (`mcq.build_prompt`); a resposta é o texto final + `Resposta: X`.
+- **Testes:** `tests/test_nemotron_pt.py` (seleção) e `tests/test_translate_script.py` (o script de tradução com um vLLM falso: só o raciocínio gera pedido). **Não testado:** o pipeline com o vLLM real e o resultado do treino.
+- **Fila da GPU** (18:40): DoRA, `nemo_mix` (~1,8 h), GRPO `grpo1` (~3 h), `adalberto_lr5e5` e o diagnóstico português x inglês. Se o `nemo_mix` vencer o `adalberto`, trocar o ponto de partida do `grpo1` antes de ele começar.
+- **Thor** (em paralelo): o pacote 1 (Qwen3-30B) e o pacote 2 (Nemotron 3 Nano 30B-A3B, `handoff/thor2/`) estão rodando lá; a entrega vira mais um dataset a misturar.
+
+### 20.10 PRD e comparação atualizados (2026-11-07)
+
+- **PRD:** nova seção "Atualização de escopo" (metas, critério de vitória e limiares **não mudaram**, regra 4); escopo ampliado com traços de professor, tradução do raciocínio e GRPO; Fora do escopo agora lista só APO, QLoRA, o CPT (avaliado e adiado) e o raciocínio em inglês (teste posterior do usuário); requisitos novos D-12 a D-16 (duplicatas em outra tradução, aceitação de traços de professor, prompt de treino, tradução, licenças) e A-15 a A-17 (validação limpa, comparação em quatro sistemas, Nemotron 4B de referência); tabela de fontes de professor; tabela dos experimentos executados e previstos; seção do GRPO; fase 2b com checklist e gate; 9 riscos novos; decisão sobre o adalberto fechada e 3 decisões novas em aberto (ponto de partida do GRPO, raciocínio em português como requisito, reabrir o CPT).
+- **`comparacao.md`:** quatro sistemas (Nemotron 3 Nano 4B, Lumi, nosso Lumi em português e nosso Lumi em inglês); ganho do treino e custo do português como diferenças entre colunas; avaliação primeiro na validação (15 a 20 min) e depois na suíte; template, prompts e vocabulário do Nemotron 4B conferidos como idênticos aos do Lumi; esclarecido que "nenhuma resposta do Nemotron entra no treino" vale para a referência (4B), não para o professor de 30B nem para os datasets da NVIDIA; tabela do estado atual.
+- **Ferramenta:** `scripts/report_compare.py` gera a tabela de comparação (nota, diferença com IC 95% contra uma referência e forma da saída) para qualquer conjunto de sistemas e provas.
+- **Fila da GPU** (19:00): DoRA em avaliação; depois Nemotron 4B de referência, `nemo_mix` (~1,8 h), GRPO `grpo1` (~3 h), `adalberto_lr5e5` e o diagnóstico português x inglês.

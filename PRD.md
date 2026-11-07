@@ -2,6 +2,8 @@
 
 Nov 6, 2026 · @gustavobarrosss
 
+Atualizado em Nov 7, 2026: escopo ampliado com traços de professor, GRPO e comparação em quatro colunas (seção [Atualização de escopo](#atualização-de-escopo-2026-11-07)).
+
 ## Resumo e objetivo
 
 Treinar por SFT um adaptador LoRA ou DoRA sobre o `ceia-br/lumi-4b` v0.2 para que `enable_thinking=True` produza raciocínio em português que melhore as respostas, sem piorar o modo sem raciocínio.
@@ -19,6 +21,21 @@ A **Nota de raciocínio** é a média simples de GSM8K-PT, MMLU-ProX PT, ENEM, B
 | Overall sem raciocínio | Lumi medido (52,99 no cartão) | Queda de até 1 ponto, sem queda significativa em nenhuma nota | Sem queda |
 
 As metas ficam entre dois precedentes. Nas 4 provas em comum com a Nota (sem MMLU-ProX PT), o Qwen3-4B ganha em média 15,73 pontos ao ligar o raciocínio e o Tucano 3.7B Think fica em -0,15 contra o Instruct. A meta alvo de 5 pontos é cerca de um terço do ganho do Qwen3-4B. No GSM8K-PT, a meta mínima repete o ganho do Tucano (2,89) e a alvo é cerca de um quarto do ganho do Qwen3-4B (37,14).
+
+## Atualização de escopo (2026-11-07)
+
+O gate da fase 2 falhou na nota: os dados do GigaVerbo `reasoning`, sozinhos, ensinam o formato e o português, mas o modelo acerta menos que o Lumi (ver fase 2). Com o prazo de 2 dias para o projeto, o usuário decidiu ampliar o escopo em vez de encerrar. **As metas, o critério de vitória e os limiares não mudam** (regra 4); muda o que se pode fazer para alcançá-los.
+
+| O que entra | Onde |
+| --- | --- |
+| **Traços de professor**, aceitos só se fecham `</think>`, estão em português e acertam o gabarito: o dataset `adalberto-temp/gsm8k-sft-thinking-pt` (Qwen3-30B), o próprio Lumi (autodestilação), o Qwen3-30B-A3B e o Nemotron 3 Nano 30B-A3B rodando na segunda máquina, e as questões de ciência da NVIDIA em português | D-12 a D-16 e [Fontes de professor](#fontes-de-professor-novo-escopo) |
+| **Tradução do raciocínio** para português, feita pelo próprio Lumi, quando o professor raciocina em inglês | D-15 |
+| **GRPO** (RL com recompensa verificável) a partir do adaptador do SFT, como plano B para a múltipla escolha | [GRPO](#grpo-rl-com-recompensa-verificável) |
+| **Segunda máquina**, uma Jetson AGX Thor (122 GiB, aarch64), que só **gera dados**; treino, tradução e avaliação ficam na RTX 4090 | Fase 2b |
+| **Validação limpa**: cerca de um terço da validação do GSM8K estava duplicada em outra tradução nos dados de treino; as comparações usam os 676 itens limpos | A-15 |
+| **Comparação em quatro colunas**: Nemotron 3 Nano 4B com raciocínio, Lumi com raciocínio, nosso Lumi com raciocínio em inglês e nosso Lumi com raciocínio em português | A-16, A-17 e [comparacao.md](comparacao.md) |
+
+O que continua fora: APO, QLoRA, publicação, tool calling e contexto longo. **Continuar o treino com raciocínio em inglês** é um teste posterior, que o usuário conduz depois de esgotado o ganho em português; aqui ele só existe como uma coluna da comparação, para separar o ganho do treino do custo do idioma.
 
 ## Contexto e evidências
 
@@ -76,23 +93,27 @@ Três hipóteses guiam o projeto:
 
 ## Escopo
 
-Este projeto cobre apenas um SFT por adaptador sobre os pesos do Lumi-4B, comparando LoRA e DoRA no modo com raciocínio e na preservação do modo sem raciocínio.
+Este projeto cobre um SFT por adaptador sobre os pesos do Lumi-4B, comparando LoRA e DoRA no modo com raciocínio e na preservação do modo sem raciocínio, e, a partir de 2026-11-07, o uso de traços de professor, a tradução desses traços e um GRPO sobre o adaptador.
 
 **Dentro do escopo**
 
 - Preparar o subset `reasoning` do GigaVerbo-v2 e uma parcela de exemplos sem raciocínio.
-- Treinar e comparar LoRA e DoRA.
-- Medir o Lumi e os candidatos nos dois modos, no mesmo harness.
+- Gerar e filtrar traços de professor (Qwen3-30B-A3B e Nemotron 3 Nano 30B-A3B na Thor, o próprio Lumi) e usar os datasets de raciocínio da NVIDIA e do adalberto, com os filtros D-12 a D-16.
+- Traduzir para português os traços em inglês.
+- Treinar e comparar LoRA e DoRA, incluindo a escala do adaptador na fusão (só LoRA).
+- Aplicar GRPO sobre o melhor adaptador do SFT.
+- Medir o Lumi, o Nemotron 3 Nano 4B de referência e os candidatos nos dois modos, no mesmo harness.
 - Entregar o adaptador vencedor, o modelo fundido em BF16 e o relatório.
 
 **Fora do escopo**
 
 - QLoRA e QDoRA: os pesos em BF16 cabem na RTX 4090, e a quantização não promete ganho de qualidade. Se a memória apertar, a saída é reduzir o batch físico e acumular gradientes.
-- APO, RL e RLVR. São os próximos passos naturais se o SFT não bastar, e cada um pede outro PRD.
-- Gerar traços novos. Se a fase 2 mostrar que os dados limitam o resultado, isso vira outro PRD.
+- APO. Pede outro PRD.
+- Continuar o treino com raciocínio em inglês: teste posterior do usuário; aqui é só uma coluna da comparação.
 - Melhorar o IFEval: aqui ele é só uma trava contra regressão.
-- Raciocínio em conversa com vários turnos: todos os 78.249 exemplos de `reasoning` têm um só turno. O model card registra essa limitação.
-- Pré-treino continuado dos pesos completos, tool calling, contexto longo, exportação GGUF e publicação no Hugging Face.
+- Raciocínio em conversa com vários turnos: todos os exemplos de treino têm um só turno. O model card registra essa limitação.
+- Pré-treino continuado dos pesos completos (CPT): avaliado e adiado. O Lumi já raciocina em português com forma correta; a queda está na nota da múltipla escolha, que o CPT não corrige de forma previsível, e a 4090 treina ~0,5 bilhão de tokens por dia. Um diagnóstico português x inglês no MMLU-ProX (`mmlu_prox_diag_*`) decide se vale reabrir a ideia.
+- Tool calling, contexto longo, exportação GGUF e publicação no Hugging Face.
 
 ## Requisitos de dados
 
@@ -141,6 +162,25 @@ A mistura inicial abaixo é uma hipótese, testada contra 100% de raciocínio na
 | D-09 | Descartar traços fora do português, com detector de idioma fixado na fase 1. |
 | D-10 | Revisão humana de 200 traços, 100 de cada tipo, antes do treino completo, para avaliar coerência e utilidade. |
 | D-11 | Separar 2% para validação interna, estratificado por `task_type`, e registrar hashes em `data_manifest.json`. |
+| D-12 | Além do 8-grama (D-05), tirar do treino os problemas que repetem um item de validação em outra tradução: mesma assinatura de números do enunciado (normalizando `1.000` e `1000`, `0,5` e `0.5`) e sobreposição de palavras (Jaccard) ≥ 0,3 (`teacher.is_val_duplicate`). O 8-grama sozinho deixou passar cerca de 325 dos 1.000 itens da validação do GSM8K. |
+| D-13 | Um traço de professor só entra se fechar um único `</think>`, terminar sozinho, tiver traço em português (ou for traduzido, D-15) e a resposta final bater com a referência no formato estrito do prompt (`#### N` ou `Resposta: <letra>`). A letra da múltipla escolha é a majoritária dos traços de um problema (≥ 75% de ao menos 3), um indicador e não verdade. |
+| D-14 | O prompt de treino de professor é o da avaliação (`gsm8k.build_prompt` ou `mcq.build_prompt`), sem system, para o modelo aprender a seguir a instrução de formato. |
+| D-15 | Tradução do raciocínio pelo Lumi (temperatura 0, em blocos de parágrafos de até 1.800 caracteres). Um bloco só vale se terminou, não traz `<think>`, tem entre 0,8 e 1,7 vezes o tamanho do original e o raciocínio final está em português; as alternativas da questão precisam voltar na mesma ordem. Depois, 8-grama contra as provas e a validação. |
+| D-16 | Registrar a licença de cada fonte de professor. O dataset do adalberto não declara licença e só serve a experimentos; a NVIDIA (CC-BY-4.0, com partes CC-BY-SA em matemática derivada do StackOverflow) e o Qwen (Apache-2.0) permitem uso. Conferir os termos de qualquer dataset gerado por modelo comercial antes de treinar com ele. |
+
+### Fontes de professor (novo escopo)
+
+| Fonte | Conteúdo | Estado |
+| --- | --- | --- |
+| [`adalberto-temp/gsm8k-sft-thinking-pt`](https://huggingface.co/datasets/adalberto-temp/gsm8k-sft-thinking-pt) | Traços do Qwen3-30B-A3B-Thinking para problemas do GSM8K `train` em português; sem licença | Usado: matemática boa, múltipla escolha ruim |
+| Autodestilação do Lumi | Raciocínio do Lumi forçado em português (prefill) e filtrado | Testado: pior que o Lumi |
+| Pacote 1 da Thor (`handoff/thor/`) | Qwen3-30B-A3B-Thinking, prefill em português, 50.908 problemas | Gerando na Thor |
+| Pacote 2 da Thor (`handoff/thor2/`) | Nemotron 3 Nano 30B-A3B, raciocínio em inglês, 9.612 de matemática e 12.000 de múltipla escolha | Gerando na Thor; o raciocínio será traduzido aqui |
+| [`nvidia/Nemotron-SFT-Multilingual-v2`](https://huggingface.co/datasets/nvidia/Nemotron-SFT-Multilingual-v2) (`stem_pt`) | Questões de ciência em português do Brasil (enunciado e resposta final traduzidos pelo DeepSeek-V3) com raciocínio do GPT-OSS-120B em inglês, o estilo do Nemotron 3 e do Lumi | Em tradução do raciocínio (`nemo_mix`): 8.000 de 26.671 questões de múltipla escolha com traço de até 1.000 palavras |
+| Questões de ciência do `open-r1/Mixture-of-Thoughts` | Múltipla escolha com traços do R1 | Só os enunciados, traduzidos, como prompts do GRPO (3.715 após o 8-grama) |
+| `recogna-nlp/Bode-reasoning` | Exames e raciocínio traduzido | **Fora:** os 3.869 itens de ENEM, BLUEX e OAB têm 100% de 8-grama com as nossas provas |
+
+O estilo do raciocínio importa: o do Lumi é curto e em forma de plano ("We need to…", mediana de 96 palavras no GSM8K); o do Qwen3-30B é mais longo e falado (177 palavras, "Certo, vamos…"), e o do R1 ainda mais (610). Treinar com um estilo que o Lumi não tem é a hipótese para a perda do `adalberto` na múltipla escolha; o professor da mesma família (Nemotron) e os traços do GPT-OSS testam essa hipótese.
 
 ## Requisitos de treino
 
@@ -205,7 +245,7 @@ O modelo fundido salvo pela nativa mantém as chaves do original (263 de 263, pr
 | `lora_dropout` | 0 | NVIDIA usa 0, e o DoRA fica mais rápido assim |
 | Taxa de aprendizado | 1e-4, varrendo 5e-5 e 2e-4 | NVIDIA usa 1e-4 em LoRA |
 | Otimizador | AdamW com cosseno e warmup de 3% | AdamW e cosseno do Tucano 2; warmup escolhido no projeto (o Tucano 2 usa 10%) |
-| Sequência | 1.024 tokens, sem truncar; exemplo acima disso é descartado e contado no relatório | O máximo dos dados é 1.000 tokens (p99 935) |
+| Sequência | 1.024 tokens, sem truncar; exemplo acima disso é descartado e contado no relatório | O máximo dos dados do GigaVerbo é 1.000 tokens (p99 935). Com traços de professor, o limite de 1.024 descartou 34% dos candidatos do adalberto; o teste com 2.048 (`--max-len`) não melhorou a múltipla escolha, e o `nemo_mix` usa 2.048 porque os traços da NVIDIA são mais longos |
 | Batch | Físico por orçamento de tokens, agrupado por comprimento: 2.048 tokens no LoRA (2 sequências) e 1.024 no DoRA (1 sequência). Efetivo de 32 sequências nos dois braços, por acumulação de gradiente | Medido na fase 0 sem checkpointing: LoRA cabe 2 × 1.024 (17,8 GiB) e DoRA 1 × 1.024 (15,3 GiB); 3 e 2 dão falta de memória. O efetivo igual nos dois braços faz o físico diferente não mudar a otimização. O efetivo de 32 é inicial, a confirmar na varredura |
 | Épocas | 2 nos finalistas e 1 nas outras etapas, sem parada antecipada | Corte por prazo (2026-11-07); o plano original era até 3 com parada antecipada, e o Tucano 2 usou 5 |
 | Gradient checkpointing | Desligado; `use_cache=False` | Medido: +34% de velocidade no LoRA e +62% no DoRA. Se algum lote der falta de memória, ligar `use_reentrant=False` e registrar |
@@ -222,6 +262,39 @@ O modelo fundido salvo pela nativa mantém as chaves do original (263 de 263, pr
 São 8 execuções (a matriz original tinha 18), com cerca de 238 M de tokens: 145 M no LoRA e 93 M no DoRA. Sem checkpointing, a velocidade medida é 5,8 mil tokens/s no LoRA e 2,5 mil no DoRA, o que dá 17 min na viabilidade, 2,2 h nas varreduras e na mistura (5 execuções de ~27 min) e 4,4 h (LoRA) mais 10,4 h (DoRA) nos finalistas: **cerca de 17 h de GPU**. Cortes em relação à matriz original, por prazo (decisão de 2026-11-07): sem o piloto de ranks (`r=16` fixo), 1 seed no lugar de 3 e 2 épocas fixas no lugar de até 3 com parada antecipada. Consequências: o rank não é otimizado, e sem seeds o IC 95% entre os finalistas é só o do bootstrap por item, sem a variação entre seeds.
 
 A seleção usa os conjuntos de validação de A-10, nunca as provas de teste. A loss não basta, porque não mede se o raciocínio melhora a resposta.
+
+### Experimentos executados e previstos (2026-11-07)
+
+A matriz acima era o plano com os dados do GigaVerbo; depois do gate da fase 2 passou a valer esta tabela. Todos são LoRA `r=16`, lr 1e-4 e 1 época, salvo indicação. Notas estritas na validação (GSM8K limpo, 676 itens; múltipla escolha, 385), modo com raciocínio / sem raciocínio. Diferenças e intervalos em `reports/` e [discovery.md](discovery.md) §20.
+
+| Execução | Dados e mudança | GSM8K limpo | Múltipla escolha |
+| --- | --- | --- | --- |
+| Lumi original | referência | 81,7% / 77,2% | 69,6% / 63,9% |
+| `viab` | 10.000 do GigaVerbo `reasoning` | 71,5%\* / – | 43,4% / – |
+| `adalberto` | Qwen3-30B (5.842 com raciocínio, 3.000 sem) mais 5.544 do GigaVerbo | 83,3% / 79,3% | 62,3% / 58,2% |
+| `adalberto_s050` e `_s075` | mesmo adaptador, escala 0,5 e 0,75 na fusão | 84,0% / 79,6% e 84,0% / 79,1% | 63,4% / 64,9% e 64,4% / 58,7% |
+| `adalberto_L2048` | mesmo dado, limite de 2.048 tokens | 82,2% / 81,7% | 64,2% / 55,3% |
+| `selfdist` | Lumi com prefill em português: 6.365 com raciocínio, 2.204 sem | 78,1% / 77,5% | 57,9% / 63,4% |
+| `adalberto_dora` | mesmo dado, DoRA | em avaliação | em avaliação |
+| `nemo_mix` | adalberto (matemática) mais 8.000 questões da NVIDIA com o raciocínio traduzido | pendente | pendente |
+| `grpo1` | GRPO a partir do adaptador `adalberto`, 8 iterações | pendente | pendente |
+| `adalberto_lr5e5` | mesmo dado, lr 5e-5 | pendente | pendente |
+
+\* validação completa de 1.000 itens, não só os 676 limpos.
+
+O que a tabela já diz: a matemática com raciocínio em português passa o Lumi com os traços do Qwen (+1,6 a +2,4, sem significância contra o Lumi com raciocínio); a múltipla escolha com raciocínio perde de 5 a 7 pontos em todas as variações; reduzir o adaptador (escala) e subir o limite de tokens não a recuperam; a autodestilação é pior que o Lumi. O gargalo é a múltipla escolha.
+
+### GRPO (RL com recompensa verificável)
+
+Parte do adaptador do SFT e deixa o próprio Lumi gerar; não depende de traços de professor. As iterações rodam em processos separados (a 4090 não comporta o vLLM e o treino juntos): fundir o adaptador, gerar 8 respostas por prompt com o vLLM, treinar (`scripts/run_grpo.sh`).
+
+- **Recompensa:** 1 se a resposta fecha um único `</think>`, termina sozinha, tem o traço em português e a resposta final bate com o gabarito no formato estrito; senão 0. Resposta truncada vale 0 e treina com vantagem negativa.
+- **Vantagem:** recompensa menos a média do grupo, dividida pelo desvio-padrão; grupo com recompensas iguais não treina.
+- **Perda:** PPO por token com corte assimétrico (0,2 e 0,28), sem KL, normalizada pelos tokens de resposta do minibatch; log-probabilidades antigas calculadas pelo próprio treino antes da atualização; lr 2e-5.
+- **Prompts:** 5.612 de matemática (GSM8K-PT `train`, com gabarito) e 3.715 de múltipla escolha (enunciados de ciência traduzidos, letra majoritária como gabarito), metade de cada em cada iteração.
+- **Execução:** 256 prompts por iteração, até 2.048 tokens, temperatura 0,8; ~18 min por iteração. Avaliação na validação a cada 3 iterações e completa no fim.
+- **Testado:** recompensa, vantagem, perda e seleção de prompts na CPU (`tests/test_grpo.py`), e uma iteração pequena de ponta a ponta na GPU (a razão inicial da perda deu 1,0001). Não testado: as iterações seguintes e o ganho de nota.
+- **Riscos:** o gabarito da múltipla escolha é um indicador; grupos sem sinal; custo.
 
 ## Requisitos de avaliação
 
@@ -254,11 +327,14 @@ Esses conjuntos só entram na avaliação, nunca no treino. O artigo do Tucano 2
 | A-07 | Calcular a diferença para a baseline com bootstrap pareado por item, dentro de cada prova: 10.000 reamostras e IC de 95% para cada nota, para a Nota de raciocínio e para o Overall. |
 | A-08 | Medir a forma do modo com raciocínio: fechamento de `</think>`, resposta não vazia, traço não vazio, idioma do traço, truncamento em 4.096 tokens, tokens por resposta (mediana e p95) e, no GSM8K-PT, se o último número do traço é a resposta. |
 | A-09 | Medir recusas nos dois modos em 200 prompts de `harmfull-no-reasoning`, excluindo o prompt que também aparece em `reasoning`. Revisar à mão 50 traços desses prompts, porque o traço pode ter conteúdo nocivo mesmo quando a resposta recusa. |
-| A-10 | Selecionar candidatos com dois conjuntos de validação: 1.000 itens do GSM8K-PT `train` sem 8-gramas em comum com o treino final, e 385 questões de Global MMLU PT `dev` (285), MMLU-ProX PT `validation` (70) e INCLUDE PT `validation` (30). Na checagem inicial, 43,6% do `train` tinha 8-gramas em comum com `reasoning`, então a nota serve para comparar candidatos, não como estimativa absoluta. |
+| A-10 | Selecionar candidatos com dois conjuntos de validação: 1.000 itens do GSM8K-PT `train` sem 8-gramas em comum com o treino final, e 385 questões de Global MMLU PT `dev` (285), MMLU-ProX PT `validation` (70) e INCLUDE PT `validation` (30). Na checagem inicial, 43,6% do `train` tinha 8-gramas em comum com `reasoning`, então a nota serve para comparar candidatos, não como estimativa absoluta. Atualização: mesmo sem 8-gramas em comum, cerca de um terço dos itens do GSM8K estava duplicado em outra tradução nos dados de treino; as comparações usam o subconjunto limpo (A-15). |
 | A-11 | Avaliar sempre o modelo fundido em BF16. |
 | A-12 | Rodar as provas de teste apenas em: Lumi (suíte e 6 notas, nos dois modos); os 2 candidatos finais (suíte nos dois modos e 6 notas sem raciocínio); e o vencedor (6 notas com raciocínio). |
 | A-13 | No vencedor, repetir a validação do GSM8K-PT com `temperature=1.0` e `top_p=0.95`, a recomendação do Nemotron para raciocínio, em 3 seeds. O resultado entra no relatório, sem afetar a seleção. |
 | A-14 | Registrar pico de memória, tempo por época e tokens por segundo em cada execução. Medir a memória com `torch.cuda.max_memory_allocated()` e `max_memory_reserved()`. Registrar também os processos do `nvidia-smi` no início e no fim, porque outro usuário na GPU pode distorcer o tempo e causar falta de memória. |
+| A-15 | Comparar candidatos no GSM8K-PT de validação só nos 676 itens sem duplicata do treino (`data/val_gsm8k_clean_ids.json`, gerado por `scripts/clean_validation.py` contra o GigaVerbo e o adalberto); o teste do GSM8K-PT está limpo. Os 1.000 itens continuam registrados. |
+| A-16 | Reportar a comparação em quatro sistemas com `scripts/report_compare.py`: Nemotron 3 Nano 4B com raciocínio, Lumi com raciocínio, nosso Lumi com raciocínio em inglês (teste posterior) e nosso Lumi com raciocínio em português. Os dois efeitos se leem por diferença: ganho do treino = nosso inglês menos o Lumi; custo do português = nosso inglês menos nosso português. |
+| A-17 | Avaliar o Nemotron 3 Nano 4B de referência primeiro na validação (GSM8K limpo e múltipla escolha, nos dois modos; template, prompts e vocabulário conferidos como idênticos aos do Lumi) e, quando a GPU permitir, na suíte de teste, conforme [comparacao.md](comparacao.md). Nenhuma resposta dele entra no treino. |
 
 **Custo estimado:** com o vLLM, o GSM8K-PT inteiro (1.295 itens) leva 233 s com raciocínio e 116 s sem (5,6 e 11,2 itens/s). Extrapolando para as 11 provas (73.095 itens por modo), a baseline do Lumi nos dois modos leva cerca de 5,5 h e a matriz de A-12 cerca de 14 h. É extrapolação de uma prova de matemática; as de múltipla escolha podem ter respostas mais curtas ou mais longas, e a primeira rodada mede isso. No HF as mesmas contas davam ~56 h e ~136 h, porque o `generate` em lote espera a saída mais longa. Medições em [discovery.md](discovery.md).
 
@@ -444,9 +520,29 @@ Um treino pequeno mostra se o caminho funciona antes de gastar GPU com a matriz 
 - [x] Medir a forma do raciocínio conforme A-08 (fecha `</think>`, idioma do traço, truncamento, tokens).
 - [ ] Ler 50 respostas e registrar o que os números não mostram.
 
-**Gate:** ao menos 95% das respostas fecham `</think>`, ao menos 90% dos traços estão em português e a nota na validação do GSM8K-PT tem IC 95% da diferença acima de 0 contra o Lumi sem raciocínio. Se falhar, parar e decidir entre mais dados, traços gerados e verificados (outro PRD) ou encerrar.
+**Gate:** ao menos 95% das respostas fecham `</think>`, ao menos 90% dos traços estão em português e a nota na validação do GSM8K-PT tem IC 95% da diferença acima de 0 contra o Lumi sem raciocínio. Se falhar, parar e decidir entre mais dados, traços gerados e verificados (decidido em 2026-11-07: dentro deste PRD, ver a fase 2b) ou encerrar.
 
-**Resultado de 2026-11-07: o gate falhou na nota e passou na forma.** Forma: 99,7% das respostas fecham `</think>` e trazem texto (99,2% na múltipla escolha; o Lumi: 95,4% e 86,2%), 99,7% dos traços em português (o Lumi: 0%) e truncamento de 0,3% (o Lumi: 4,7% e 13,8%). Nota com raciocínio contra o Lumi sem raciocínio, GSM8K-PT validação: 71,5% contra 81,4% no strict (−9,9, IC 95% [−12,7, −7,1]) e 80,3% contra 81,5% no flexível (−1,2, [−3,4, +1,0]); múltipla escolha: 43,4% contra 63,9% (−20,5) no strict e 53,0% contra 63,4% (−10,4) no flexível. Parte da queda do strict é formato (a resposta sai em prosa depois do `</think>`, sem `#### N` ou `Resposta: X`), mas não toda: com a leitura mais generosa (qualquer letra no texto), a múltipla escolha fica em 55,1% contra 69,6% do Lumi. O modo sem raciocínio também piorou (GSM8K strict −20,2, flexível −3,9; múltipla escolha flexível −6,8). Decisão pendente do usuário; ver [discovery.md](discovery.md) §15.
+**Resultado de 2026-11-07: o gate falhou na nota e passou na forma.** Forma: 99,7% das respostas fecham `</think>` e trazem texto (99,2% na múltipla escolha; o Lumi: 95,4% e 86,2%), 99,7% dos traços em português (o Lumi: 0%) e truncamento de 0,3% (o Lumi: 4,7% e 13,8%). Nota com raciocínio contra o Lumi sem raciocínio, GSM8K-PT validação: 71,5% contra 81,4% no strict (−9,9, IC 95% [−12,7, −7,1]) e 80,3% contra 81,5% no flexível (−1,2, [−3,4, +1,0]); múltipla escolha: 43,4% contra 63,9% (−20,5) no strict e 53,0% contra 63,4% (−10,4) no flexível. Parte da queda do strict é formato (a resposta sai em prosa depois do `</think>`, sem `#### N` ou `Resposta: X`), mas não toda: com a leitura mais generosa (qualquer letra no texto), a múltipla escolha fica em 55,1% contra 69,6% do Lumi. O modo sem raciocínio também piorou (GSM8K strict −20,2, flexível −3,9; múltipla escolha flexível −6,8). Decisão do usuário em 2026-11-07: ampliar o escopo (fase 2b); ver [discovery.md](discovery.md) §15.
+
+### Fase 2b: dados de professor e GRPO (novo escopo)
+
+Entre o gate da fase 2 e as varreduras: descobrir uma receita que passe o Lumi também na múltipla escolha, ainda com LoRA `r=16`.
+
+- [x] Remover da validação as duplicatas em outra tradução e passar a comparar nos 676 itens limpos (A-15).
+- [x] Treinar com traços do Qwen3-30B (`adalberto`): matemática passa o Lumi, múltipla escolha perde 5 a 7 pontos.
+- [x] Testar a escala do adaptador (0,5 e 0,75) e o limite de 2.048 tokens: nenhum recupera a múltipla escolha.
+- [x] Testar a autodestilação do Lumi (`selfdist`): pior que o Lumi.
+- [x] Levantar datasets de raciocínio em português e no estilo do Nemotron; descartar o Bode-reasoning (100% de 8-grama nas provas).
+- [x] Piloto de tradução do raciocínio pelo Lumi: 86% aceito, 94,7% dos números preservados (média), vocabulário técnico com erros.
+- [x] Montar os pacotes da Thor (Qwen3-30B e Nemotron 3 Nano 30B-A3B) e a entrega em `thor_out.tar.gz` e `thor2_out.tar.gz`.
+- [x] Escrever o GRPO e passar o teste de fumaça.
+- [ ] Avaliar o DoRA com os dados do `adalberto`, o `nemo_mix`, o GRPO (`grpo1`) e o lr 5e-5.
+- [ ] Avaliar o Nemotron 3 Nano 4B de referência (A-17) e montar a tabela de A-16.
+- [ ] Processar as entregas da Thor, traduzir e treinar com elas.
+- [ ] Medir o diagnóstico português x inglês no MMLU-ProX (decide se o CPT reabre).
+- [ ] Rodar a validação nas provas de teste do candidato escolhido, junto com o Lumi (A-12).
+
+**Gate:** um candidato com Nota de raciocínio acima do Lumi em validação nos dois modos, ou o relatório declarando que não houve vitória, com a causa provável por prova e por tipo de dado. Se o ganho ficar só em matemática, dizer isso.
 
 ### Fase 3: varreduras
 
@@ -499,11 +595,22 @@ O maior risco é de resultado: o Tucano 3.7B Think usou os mesmos dados e só ga
 | Ajuste indireto ao benchmark | Resultado otimista | Seleção na validação e benchmark só nos finalistas |
 | CEIA lança o modo oficial | Trabalho perde utilidade prática | Perguntar o prazo antes da fase 2 |
 | Licença impede derivados | Modelo não pode ser publicado | Confirmar antes de qualquer publicação |
+| Estilo do professor diferente do Lumi | O modelo aprende um modo de raciocinar que não é o dele e perde na múltipla escolha | Professor da mesma família (Nemotron) e traços no estilo do GPT-OSS; comparar estilo e nota |
+| Tradução do raciocínio com erros técnicos | Terminologia errada nos exemplos | D-15, leitura de amostras e troca do tradutor (Qwen3-30B na Thor) se o treino mostrar que a tradução limita |
+| Gabarito da múltipla escolha por maioria dos traços do R1 | Recompensa e rótulo errados em parte dos itens | Exigir maioria de 75%; usar só como prompts de GRPO e SFT, nunca na avaliação |
+| Dados de professor sem licença ou gerados por modelo comercial | Modelo não publicável | D-16; o adalberto fica só em experimento |
+| Domínio dos dados da NVIDIA (química e física de pós-graduação) mais estreito que as provas | Pouca transferência para ENEM, OAB e conhecimentos gerais | Misturar com matemática, incluir as questões GPQA (mais variadas) e medir por prova |
+| GRPO instável ou caro | Sem ganho e horas de GPU gastas | Teste de fumaça, avaliação a cada 3 iterações, cancelamento a qualquer momento |
+| Fila de jobs reencadeada errado | Jobs disparam com a GPU ocupada e falham | Ao inserir um job, matar os dependentes do mais distante para o mais próximo e conferir `grep has-session runs/jobs/*.run.sh` |
+| Dados parcialmente copiados das provas | Nota inflada por contaminação | D-05 e D-12; o Bode-reasoning foi descartado por isso |
 
 ### Decisões em aberto
 
 - [ ] Qual harness e quais parâmetros o CEIA usou no cartão (temperatura, few-shot, prompts, limite de tokens e raciocínio nos modelos comparados)? O cartão não documenta nada disso. Pedir também o notebook `colab_graficos_llms-2.ipynb`, citado na primeira versão do cartão.
-- [ ] Vale usar [`adalberto-temp/gsm8k-sft-thinking-pt`](https://huggingface.co/datasets/adalberto-temp/gsm8k-sft-thinking-pt)? São 56.296 respostas do Qwen3-30B-A3B-Thinking para 7.225 problemas do GSM8K, geradas com o traço antes da resposta, e com checagem pedida no prompt. A mediana é de 236 palavras, e o p99 chega a 1.819. O dataset não declara licença, cerca de 6% dos traços parecem conter trechos em inglês e usá-lo exigiria trocar a validação de A-10.
+- [x] Vale usar [`adalberto-temp/gsm8k-sft-thinking-pt`](https://huggingface.co/datasets/adalberto-temp/gsm8k-sft-thinking-pt)? Decidido em 2026-11-07: sim, só como experimento, com o filtro D-12 e a validação limpa (A-15). Sem licença declarada, não entra em nada que seja publicado sem decisão registrada.
+- [ ] Qual é o ponto de partida do GRPO? Hoje é o adaptador `adalberto`; se o `nemo_mix` ou o DoRA vencerem, trocar antes de o `grpo1` começar.
+- [ ] O raciocínio em português é requisito fixo? A comparação em quatro colunas (A-16) mede o custo do idioma; a decisão fica para depois do teste com raciocínio em inglês, conduzido pelo usuário.
+- [ ] Reabrir o CPT? Depende do diagnóstico português x inglês no MMLU-ProX.
 
 
 ### Fontes
@@ -522,3 +629,6 @@ Nesta versão, o `chat_template.jinja` e as configs do Lumi foram lidos por comp
 - [DoRA no PEFT](https://huggingface.co/docs/peft/main/package_reference/lora_variant_dora)
 - [Nemotron 3 Nano 4B no Megatron Bridge](https://docs.nvidia.com/nemo/megatron-bridge/nightly/models/nemotron/nemotron3-nano-4b.html)
 - [Guia do Nemotron 3 na Unsloth](https://unsloth.ai/docs/models/tutorials/nemotron-3)
+- [Nemotron-SFT-Multilingual-v2](https://huggingface.co/datasets/nvidia/Nemotron-SFT-Multilingual-v2), [Nemotron-Science-v1](https://huggingface.co/datasets/nvidia/Nemotron-Science-v1), [Nemotron-Math-v2](https://huggingface.co/datasets/nvidia/Nemotron-Math-v2) e [Nemotron-Post-Training-Dataset-v2](https://huggingface.co/datasets/nvidia/Nemotron-Post-Training-Dataset-v2)
+- [Nemotron 3 Nano 30B-A3B](https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16) e o [blog da NVIDIA sobre o Nemotron 3 Nano](https://huggingface.co/blog/nvidia/nemotron-3-nano-efficient-open-intelligent-models)
+- [Qwen3-30B-A3B-Thinking-2507](https://huggingface.co/Qwen/Qwen3-30B-A3B-Thinking-2507), [`open-r1/Mixture-of-Thoughts`](https://huggingface.co/datasets/open-r1/Mixture-of-Thoughts) e [Long Chain-of-Thought Reasoning Across Languages](https://arxiv.org/html/2508.14828v1)

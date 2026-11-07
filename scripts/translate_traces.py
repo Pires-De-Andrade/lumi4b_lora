@@ -1,6 +1,7 @@
 """Traduz para o português as questões de ciência (e os traços do R1) de data/mot_science_en.jsonl, com o Lumi no vLLM.
 
-Os problemas são divididos por hash (70% com raciocínio, 30% só resposta, como em build_teacher_dataset.py). Com raciocínio
+Registros com `ready_pt` (enunciado, alternativas e texto final já em português, como os de nvidia/Nemotron-SFT-Multilingual-v2)
+só têm o raciocínio traduzido. Os problemas são divididos por hash (70% com raciocínio, 30% só resposta, como em build_teacher_dataset.py). Com raciocínio
 traduz-se enunciado+alternativas, o raciocínio (em blocos de parágrafos) e o texto final; sem raciocínio, só enunciado+
 alternativas e texto final. Tradução gulosa (T=0), modo sem thinking. Um bloco ruim (não terminou, tamanho estranho,
 alternativas que não voltam, raciocínio fora do português) derruba o registro. A descontaminação (8-grama contra as
@@ -77,8 +78,9 @@ def main() -> None:
         jobs = []  # (registro, parte, texto de origem)
         for r in block:
             with_think = GV.bucket(r["problem_id"]) < 7000
-            jobs.append((r, "q", question_block(r)))
-            jobs.append((r, "f", r["final"]) if r["final"].strip() else None)
+            if not r.get("ready_pt"):  # enunciado, alternativas e texto final já em português: só o raciocínio precisa de tradução
+                jobs.append((r, "q", question_block(r)))
+                jobs.append((r, "f", r["final"]) if r["final"].strip() else None)
             if with_think:
                 jobs += [(r, f"t{k}", c) for k, c in enumerate(TR.chunk_paragraphs(r["thought"]))]
         jobs = [j for j in jobs if j]
@@ -98,19 +100,21 @@ def main() -> None:
                 why = next((f"{k}:{v[1]}" for k, v in p.items() if v[1]), None)
                 rec = None
                 if why is None:
-                    sp_q = M.split_options(p["q"][0])
+                    ready = bool(r.get("ready_pt"))
+                    sp_q = (r["question"], r["options"]) if ready else M.split_options(p["q"][0])
                     if sp_q is None or len(sp_q[1]) != len(r["options"]):
                         why = "alternativas_nao_voltaram"
                     else:
                         thought = TR.join_chunks([p[k][0] for k in sorted((k for k in p if k.startswith("t")), key=lambda k: int(k[1:]))]) if with_think else None
-                        final = p["f"][0] if "f" in p else ""
+                        final = r["final"] if ready else (p["f"][0] if "f" in p else "")
                         if with_think and not TR.is_portuguese(thought):
                             why = "raciocinio_nao_pt"
                         else:
                             prompt = mcq.build_prompt({"question": sp_q[0], "options": sp_q[1]})
                             answer = (final + "\n\n" if final else "") + f"Resposta: {r['letter']}"
-                            rec = {"id": f"mot_sci_pt:{r['id']}", "problem_id": r["problem_id"], "question": sp_q[0], "prompt": prompt,
-                                   "answer": answer, "source": "mot_science_pt", "letter": r["letter"], "options": sp_q[1]}
+                            tag = "nemotron_pt" if ready else "mot_science_pt"
+                            rec = {"id": f"{tag}:{r['id']}", "problem_id": r["problem_id"], "question": sp_q[0], "prompt": prompt,
+                                   "answer": answer, "source": tag, "letter": r["letter"], "options": sp_q[1]}
                             if with_think:
                                 rec["thought"] = thought
                 why = why or "ok"
