@@ -53,7 +53,7 @@ def main() -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     st = {"iter": a.iter, "prompts": len(sel), "group": a.group, "gen_seconds": round(dt), "whys": {}, "appended_stop_token": 0}
     by_kind: dict[str, list[float]] = {}
-    n_signal, n_tok = Counter(), 0
+    n_signal, n_tok, all_samples = Counter(), 0, []
     with out.with_suffix(".tmp").open("w") as f:
         for p, o in zip(sel, outs):
             outputs = []
@@ -67,12 +67,14 @@ def main() -> None:
                 st["whys"][f"{p['kind']}:{k}"] = st["whys"].get(f"{p['kind']}:{k}", 0) + v
             by_kind.setdefault(p["kind"], []).extend(s["reward"] for s in samples)
             n_signal[p["kind"]] += any(s["advantage"] != 0 for s in samples)
+            all_samples += samples
             for s in samples:
                 f.write(json.dumps(s) + "\n")
     out.with_suffix(".tmp").replace(out)
     st["reward_mean"] = {k: round(sum(v) / len(v), 4) for k, v in by_kind.items()}
     st["groups_with_signal"] = dict(n_signal)
     st["gen_tokens"], st["tok_per_s"] = n_tok, round(n_tok / dt)
+    st["summary"] = R.summarize_rollouts(all_samples)  # requisitos da recompensa, grupos sem sinal e por fonte/comprimento (só registro)
     out.with_suffix(".stats.json").write_text(json.dumps(st, indent=1, ensure_ascii=False))
     print(json.dumps(st, ensure_ascii=False))
     print("EXIT_OK")

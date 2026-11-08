@@ -737,3 +737,144 @@ Teste de fumaça (`run_grpo.sh smoke`, 1 iteração, 16 prompts × 4 respostas, 
 - Qualidade da tradução (2 pares lidos, inglês e português): alternativas na mesma ordem e números iguais; termos técnicos às vezes errados ("bond" → "bonde/bônus"). O gabarito é o oficial, então a recompensa não depende da tradução, mas o enunciado pode ficar estranho.
 - `scripts/run_grpo.sh` ganhou `--prompts` (padrão igual ao anterior). Decisão do usuário (15:35): rodar o RL depois do `gspo_thor` da suíte. Cadeia `gold-chain` (`scripts/run_gold_chain.sh`): espera `INICIO suíte gspo_thor`, cria `suite.stop` (a suíte termina o `gspo_thor` e não começa o `gspo1`), roda `gspo_gold` (adalberto, receita do `gspo1`, 8 ciclos, 1.024 questões de múltipla escolha no total: 618 WebInstruct e 406 MedMCQA) e retoma a suíte (`gspo1`). Ponto de partida `adalberto` e não `thor_pt_short`: 62,3% contra 57,4% em múlt. escolha com thinking (−4,9, IC −9,9 a 0,0) e fecha 86,8% contra 73,8%.
 - Mudança (15:38, pedido do usuário): a suíte de teste roda o `gspo1` em vez do `gspo_thor`. Ordem: Lumi (já rodando) → suíte do `gspo1` → RL `gspo_gold`. Como o `run_suite.sh` estava rodando, não foi editado: foi criado `suite.stop` (a suíte antiga para depois do Lumi), a `gold-chain` foi relançada (versão 2) e há um script novo, `scripts/run_suite_models.sh`, que recebe a lista `NOME|modelo` por argumento. A suíte do `gspo_thor` pode ser feita depois com esse script.
+
+### 20.28 Revisão externa do RL: o `clip_fraction` do GSPO estava errado como diagnóstico (08/11/2026, 16:15)
+
+- Procede: o registro calcula a razão por token e a compara com os limites da sequência (3e-4 e 4e-4); a perda corta a razão da sequência. A frase "40 a 50% dos tokens cortados, logo o modelo se mexe pouco" (§20.x do `gspo1`, H16) **não é sustentada**; corrigida em `estudos/04` e `07`. A perda e o gradiente estão certos.
+- Procede: a perda GSPO é ponderada pelo comprimento (gradiente por token `-A·s/N`), não a média uniforme por sequência; documentado em `estudos/04`. Ablação adiada.
+- Procede em parte: a recompensa mistura objetivos; os `whys` são um motivo por amostra em ordem de prioridade. Nos rollouts, grupos sem gradiente: múlt. escolha 26 a 53% todos certos e só 5 a 16% todos zero; matemática 72 a 78% todos certos (só ~20% de grupos úteis). No início do `gspo_thor`, 62% das amostras dos grupos todos-zero de múlt. escolha eram truncadas.
+- Idioma: a heurística (97,9% e 96,1% de português) não mostra inflação nos casos limítrofes lidos; revisão humana de ~50 traços fica pendente para o candidato final.
+
+### 20.29 Segunda leitura externa (`lumi_4b_tres_acoes_prioritarias.md`): o que procede (08/11/2026, 16:30)
+
+- **Procede e corrige o que eu disse:** o `gspo_gold` compara conjuntos de treino (questões, domínios, fontes e rótulos mudam juntos); eu tinha escrito que "só o gabarito muda". O rótulo do WebInstruct-verified não é de banca (resposta da web verificada por modelo); conferido: usamos a revisão `3e8a350b` (a mais recente) e o `train` corrigido, não o `train_legacy`.
+- **Procede e é mais preciso que o meu:** o corte efetivo do GSPO é A > 0 com s > 1 + eps_alto e A < 0 com s < 1 - eps_baixo, e não "razão fora do intervalo"; registrar por sequência e por token, com os denominadores.
+- **Confirmado no código, e ainda não estava em nenhum estudo:** o treino calcula as log-probabilidades **sem dividir pela temperatura** (`forward_lp` em `grpo_train.py`), mas os rollouts do `gspo1` e do `gspo_thor` foram gerados com T 0,6 e top-p 0,95. A razão `new/old` é consistente (as duas na mesma conta), mas as amostras vêm de uma distribuição mais fria do que a que se otimiza.
+- **PRD:** a entrega é o adaptador **e a versão fundida em BF16**, então "rotear" (adaptador só com thinking) não cumpre o critério do modo sem thinking para o modelo fundido; serve só como opção de implantação à parte.
+- **Teste reservado:** a suíte de teste do `gspo1` só vale como calibração da validação; a escolha da receita final continua na validação, e o teste do candidato final roda uma vez, com receita e checkpoint congelados.
+
+### 20.30 Registro do treino, filtro de qualidade das questões e auditoria (08/11/2026, 16:55)
+
+- Pedido do usuário (16:20): fazer o registro do treino; a auditoria sem julgar o conteúdo médico (ninguém do projeto vai julgar).
+- Registro (só registro, a perda não muda): corte ativo por sequência e por token com denominadores, |log s| e ruído do primeiro passo; `parts` por amostra e `summary` por ciclo nos rollouts; `grpo_status.py` atualizado; 17 testes novos (corte ativo bate com o gradiente da perda, as partes batem com a recompensa, resumo dos grupos). 350+ testes na CPU. Teste rápido (`smoke_diag`) na `gold-chain` antes do `gspo_gold`, porque o laço de treino não pôde ser rodado com a GPU ocupada.
+- Auditoria: **a tradução da Thor tem defeitos que passam nas conferências dela**: 219 enunciados deixados em inglês (1,9%) e ~60 negações perdidas ("not" some e o gabarito inverte). Filtro novo exclui 343 questões; pool de múltipla escolha 11.324 → 10.981. Falsos alarmes da primeira versão dos marcadores (alternativas "repetidas" que só diferiam no sinal ou em LaTeX; "nenhuma das alternativas" sem correspondente) corrigidos.
+- Pendente: revisão humana de conteúdo (ninguém), e a revisão de ~50 traços para o idioma do candidato final.
+
+### 20.31 Terceira leitura externa (`lumi_4b_sft_masking_datasets.md`): o que serve (08/11/2026, 17:00)
+
+- **A premissa "traço longo contra resposta final curta" não vale para os nossos dados.** Parcela da loss (por token supervisionado) em exemplos com thinking: `adalberto` raciocínio 34,6% e resposta final 32,0% (a resposta depois do `</think>` tem ~315 tokens: é a solução inteira do Qwen; o raciocínio, ~341); `thor_pt` 61,4% e 16,5% (resposta ~125 tokens, raciocínio ~465); `selfdist` 48,7% e 19,2%. A letra da alternativa é 1 a 3 tokens em ~800 (~0,2%). Ponderar "a resposta final" reforçaria a solução, não a escolha; para reforçar a escolha o peso teria que ser na linha final `Resposta: X`.
+- **Prompt sem loss:** em média 135 tokens de prompt contra 400 supervisionados (a razão em que os papers citados mostram pouco efeito; eles ganham com prompt longo e resposta curta).
+- **Platô de intensidade do SFT:** lr 5e-5 (63,4% / 57,9%), adaptador x0,5 (63,4% / 64,9%), x0,75 (64,4% / 58,7%), limite 2.048 (64,2% / 55,3%), r=4 e só MLP (62,3%): a múltipla escolha com thinking fica em 62 a 64% qualquer que seja a "força" do SFT; o sem thinking é que se mexe (x0,5 volta ao nível do Lumi, +1,0; uma execução, ruído de ±4 a 5). Isso não favorece "menos pressão de SFT" como remédio da múltipla escolha com thinking; favorece o custo do idioma (5 a 6 pontos) e do formato.
+- **Datasets sugeridos (ECQA, SciQ, OpenBookQA, CommonsenseQA, EU-Instruct):** em inglês, de nível fácil (senso comum e ciências do ensino básico), longe do ENEM/OAB/BLUEX/MMLU-ProX; licenças pendentes (SciQ CC BY-NC; ECQA CDLA-Sharing; OpenBookQA sem esclarecer); exigem tradução na Thor e descontaminação. Temos 10.981 questões em português de domínios mais próximos, com rótulo, sem explicação.
+- **DFT:** pesa cada token pela probabilidade que o modelo já dá a ele, então reduz justamente o aprendizado dos tokens em português que o Lumi acha improváveis (traço de raciocínio em português: 0% no Lumi). Se for testado, com portão de idioma (português >= 90%).
+- **O que serve:** (1) supervisão direta no modo sem thinking com as nossas questões rotuladas (`Resposta: X`, rótulo do dataset, sem explicação), que ataca o critério do PRD (o sem thinking perde 3,9 pontos no `gspo_thor`, e a perda é de formato, D8); (2) registrar a loss por segmento no SFT (diagnóstico barato); (3) cuidado dos denominadores (`n_targets`) se a loss for ponderada.
+
+### 20.32 `gspo_gold`, ciclo 0 (08/11 17:39): o registro novo do corte, lido de verdade
+
+- **Ruído numérico:** no primeiro passo do ciclo (antes de qualquer atualização) o desvio médio |log s| já é 4,5e-4, da ordem da faixa de corte (3e-4 / 4e-4). O teste rápido (8 sequências) tinha dado 4,8e-4. Só isso explica parte dos ~31% de sequências com corte ativo no passo 1.
+- **Movimento real domina depois:** |log s| sobe para 1,7e-3 a 3,2e-3 a partir do passo 3 (4 a 7 vezes o ruído) e o corte fica ativo em 45 a 62% das sequências nos passos 3 a 12 (média do ciclo: 50,1% com gradiente zerado, 82,9% fora da faixa, 12 passos, 744 amostras usadas). Então o corte do GSPO com eps tão pequeno age como região de confiança apertada, e o ruído só pesa nos passos 1 e 2. Recalcular a log-prob antiga com o mesmo lote seria correção de baixa prioridade.
+- **Dificuldade da base:** recompensa em múltipla escolha 0,357 (`gspo1`: 0,593); WebInstruct 25% de acerto e 52% truncadas (limite de 2.048), MedMCQA 53% e 11,5%; grupos zerados 46/128 (22 todas truncadas, 24 todas erradas), mistos 67/128.
+- **Tempo:** geração 697 s, recomputação da log-prob antiga 91 s, treino 264 s: ~18 min por ciclo (8 ciclos + 2 avaliações: fim por volta das 20:00).
+
+### 20.33 `gspo_gold` com 2.048 interrompido; novo RL com 4.096 (08/11 18:05, decisão do usuário)
+
+- **Por que:** o limite de geração do RL (2.048) nunca foi testado e é a única variável comum às três rodadas de RL (`gspo1`, `gspo_thor`, `gspo_gold`), que pararam todas em ~67% de múltipla escolha com thinking (Lumi 69,6%). No ciclo 0 do `gspo_gold`, 36% das respostas de múltipla escolha truncavam (WebInstruct 52%, MedMCQA 11,5%) e truncada vale 0. No ciclo 1: recompensa 0,365 (0,357 no ciclo 0), WebInstruct 36% de acerto e 42% truncadas, MedMCQA 39% e 24% (50 a 78 questões por fonte e por ciclo: ruído grande).
+- **O que foi feito:** o RL foi parado no ciclo 2 (ciclos 0 e 1 prontos; pasta `runs/grpo/gspo_gold`); teste de memória com 4.096 (`smoke_4k`, 32 questões x 4, 21 de 128 truncadas no limite, 10 amostras com 4.000 tokens ou mais entre as usadas no treino): pico de 12,54 GiB alocados, o mesmo do treino a 2.048 (12,46). Novo RL `gspo_gold4k`: receita do `gspo1` (ponto de partida `adalberto`, 8 ciclos, T 0,6, top-p 0,95, `--ratio seq`, lr 2e-5), mudando **duas coisas** em relação a ele: as questões e `--max-new 4096`. Se ganhar, não separa qual causou; separar depois, se valer a pena.
+- **Decisão de uso do usuário (08/11):** o adaptador só liga com `enable_thinking=True`; sem thinking roda o Lumi original. A queda sem thinking dos candidatos deixa de pesar no uso (o critério do PRD é atendido por construção, e o relatório precisa dizer isso; o BF16 fundido sozinho degrada o sem thinking). Variantes antes descartadas pelo sem thinking (ex.: `adalberto_L2048`, 64,2% com thinking e 55,3% sem) voltam a valer o teste; `nt_*` e H22 perdem prioridade; a suíte dos candidatos pode rodar só com thinking (o Lumi sem thinking continua como referência).
+- **Fila:** só a `gold-chain` (o RL). A sessão `suite-gspo1` foi criada às 18:05 e **removida às 18:20 a pedido do usuário**: com o limite maior há outros testes a fazer antes da suíte de teste do `gspo1`, que fica adiada (nada dispara depois do RL; a GPU fica livre para o que o usuário escolher).
+
+### 20.34 `gspo_gold4k`, ciclo 0 (08/11 18:27): mesmo conjunto de 256 questões do ciclo 0 do `gspo_gold` (a seleção é determinística), só muda o limite
+
+| Ciclo 0 | 2.048 | 4.096 |
+| --- | --- | --- |
+| Recompensa múlt. escolha / matemática | 0,357 / 0,870 | 0,398 / 0,885 |
+| Múlt. escolha que termina (não trunca) | 63,9% | 73,1% |
+| WebInstruct: truncadas / recompensa | 51,9% / 0,25 | 39,3% / 0,31 |
+| MedMCQA: truncadas / recompensa | 11,5% / 0,525 | 7,7% / 0,54 |
+| Grupos de múlt. escolha: todos zero (todas truncadas) / mistos | 46 (22) / 67 | 35 (11) / 76 |
+| Corte ativo (sequências) / pico de memória | 50% / 12,46 GiB | 39% / 12,69 GiB |
+| Geração / treino | 697 s / 264 s | 971 s / 202 s |
+
+- Ruído: uma execução, 128 questões de múlt. escolha por ciclo (a recompensa de 0,357 para 0,398 está dentro do ruído); a queda das truncadas e o aumento dos grupos mistos são o que se esperava do limite maior.
+- **Truncadas a 4.096 não são só laços:** nas 276 truncadas de múlt. escolha com ≥1.000 tokens, 25,7% têm 8-gramas muito repetidos nos últimos 1.000 tokens (razão de únicos < 0,5; 12,7% abaixo de 0,2), contra 0% nas que terminam. WebInstruct: 21% repetitivas (79% são raciocínio longo sem laço); MedMCQA: 61% repetitivas (laços, em perguntas curtas). Heurística de n-gramas: não pega laço com paráfrase.
+- **4.096 é o limite certo para o treino:** a avaliação e o PRD cortam em 4.096, então a recompensa passa a coincidir com o que a avaliação mede; mais que isso treinaria um comportamento que a nota não vê.
+
+### 20.35 Benchmark de velocidade da geração do RL (enfileirado 08/11 ~18:55, pedido do usuário)
+
+- **Por quê:** a geração é o gargalo do ciclo (971 s de ~21 min, 77%; 2,2 h por RL de 8 ciclos a 4.096 tokens). Uma revisão externa propôs quatro ajustes sem perda de qualidade (nenhum testado): backend FlashInfer para o Mamba, ajuste do kernel Triton, prefix caching desligado, `gpu_memory_utilization` 0,88 para 0,93.
+- **Verificado no código instalado:** o vLLM 0.33.0 tem `MambaBackendEnum` (triton padrão, flashinfer, cpu) e o flashinfer 0.7.2 está instalado; o código diz que o FlashInfer "não suporta prefix caching ainda" (na doc do ReplaySSM; escopo incerto), então o FlashInfer provavelmente exige o prefix caching desligado. Nós ligamos o prefix caching de propósito (`grpo_rollout.py`, linha 46). A capacidade de cache é de 172.373 tokens (concorrência de 33,7x para 5.120 tokens), mas o log do RL não imprime a concorrência real (estatísticas desligadas).
+- **O que roda:** `scripts/run_bench_rollout.sh` (sessão `bench-rollout`, espera a `gold-chain` acabar, ~21:15): `scripts/bench_rollout.py` com o `gspo1/merged`, 64 questões x 8 respostas (as mesmas do ciclo 0), 4.096 tokens, T 0,6, top-p 0,95, uma configuração por processo: `base`, `prefix_off`, `prefix_off_mem93`, `flashinfer_prefix_off`, `base_repete` (ruído entre execuções). Liga o log de estatísticas do vLLM (respostas rodando, esperando, uso do cache de KV). Tempo máximo de 25 min por configuração; uma que falhe não derruba as outras. Resultados em `runs/bench_rollout/results.jsonl` e `tabela.md`.
+- **Critério (antes de ver os números):** adotar nos RLs seguintes a configuração que ganhar ≥15% em tokens por segundo contra a base E mantiver a recompensa e o tamanho das respostas iguais dentro do ruído (as saídas não são idênticas entre kernels). O `gspo_gold4k` fica como está (homogêneo).
+- Só arquivos novos (`bench_rollout.py`, `run_bench_rollout.sh`, `tests/test_bench_rollout.py`; 361 testes passam); o RL em curso não foi tocado.
+
+### 20.36 Fila: triagem do RL a partir do `thor_pt` com 4.096 (enfileirada 08/11 19:20, pedido do usuário)
+
+- **Comprimento dos traços do Nemotron (5.278 registros traduzidos com raciocínio):** ciência p50/p90/p99 de 585 / 1.836 / 2.846 tokens de raciocínio; GSM8K 269 / 674 / 1.918; matemática do `gv_math` 259 / 562 / 1.484 (o Qwen do `adalberto` tem p90 de ~493). Exemplos (pergunta + raciocínio + resposta) acima de 2.048 tokens: 269 de 5.278 (5,1%; 237 na ciência, 9,6% dela), nenhum acima de 4.096. **Subir o limite do SFT para 4.096 acrescentaria no máximo ~269 exemplos**, então refazer o SFT só por causa do comprimento não vale; o `thor_pt_short` (cortar a cauda) já tinha dado +3,1, sem sinal.
+- **Onde o limite novo pode ajudar o Nemotron é no RL:** com 2.048 o RL cortava justamente a cauda longa (o `gspo_thor` terminou com mediana de 534 tokens, contra 1.035 do `gspo1`).
+- **Fila:** sessão `thor4k` (`scripts/run_thor4k_chain.sh`): espera a `gold-chain` e o `bench-rollout`, depois roda `gspo_gold4k_thor`: `--init runs/train/thor_pt/adapter`, 4 ciclos, as questões do gold, `--max-new 4096`, mesma receita do `gspo_gold4k`. A avaliação do final equivale ao ciclo 4 do `gspo_gold4k` (comparação direta; só muda o ponto de partida). Continuar até 8 ciclos só se o ciclo 4 for promissor. Motivo extra: o `adalberto` não tem licença declarada. Usa a configuração padrão do vLLM, sem as mudanças do benchmark (para ficar homogêneo com o `gspo_gold4k`). Cancelar: `tmux kill-session -t thor4k` (só enquanto espera).
+
+### 20.37 `gspo_gold4k`, ciclo 4 (08/11 19:40): a regra de parada fixada às 19:30 foi acionada; RL interrompido
+
+Validação limpa, com thinking (GSM8K 676 itens, múltipla escolha 385), IC 95% pareado:
+
+| | Lumi | `gspo1_c4` | `gspo_gold4k` ciclo 4 |
+| --- | --- | --- | --- |
+| GSM8K | 81,7% | 84,3% (+2,7; +0,0 a +5,3) | 84,6% (+3,0; +0,4 a +5,6) ▲ |
+| Múlt. escolha | 69,6% | 67,8% (−1,8; −6,2 a +2,6) | **63,1% (−6,5; −11,2 a −1,8) ▼** |
+| Fecha `</think>` e responde (múlt. escolha) | 86,2% | 90,9% | **83,9%** |
+| Truncadas (múlt. escolha) | 13,8% | 10,6% | **16,4%** |
+| Traço em português (múlt. escolha) | 0% | 95,4% | 98,5% |
+| Mediana de tokens (múlt. escolha) | 490 | 1.086 | 1.250 |
+
+- Contra o `gspo1_c4`: múlt. escolha −4,7 (IC −9,4 a +0,0); GSM8K +0,3 (IC −1,9 a +2,5).
+- **Regra:** "múlt. escolha < ~62% **ou** fecha < ~87% → parar". Fecha 83,9% (< 87%), então parou, embora a nota (63,1%) esteja acima de 62%. Adaptador `it003` (o avaliado) guardado; retomável com o mesmo comando (os ciclos 0 a 3 estão prontos).
+- **Onde foi a perda (385 itens pareados):** só o `gspo1_c4` acerta 51 itens e só o `gspo_gold4k` acerta 33; **30 dos 51 estão truncados** no `gspo_gold4k`. Truncadas: 63 (contra 41); com repetição forte nos últimos 700 palavras (razão de 8-gramas únicos < 0,5): **39 de 63 no `gspo_gold4k` contra 11 de 41 no `gspo1_c4`**. Ou seja, o `gspo_gold4k` entra mais em laço (≈10% dos itens contra ≈3%). Heurística de n-gramas, uma execução.
+- **Hipóteses (nenhuma testada):** (a) o limite de 4.096 premia raciocínios longos que terminam entre 2.048 e 4.096, e raciocínio longo aumenta o risco de laço; (b) as questões do gold (WebInstruct longa e difícil, MedMCQA com laços já no ciclo 0: 61% das truncadas) deslocam o modelo para uma distribuição diferente da validação; (c) ruído (385 itens, erro padrão ~2,4). Como mudamos duas coisas ao mesmo tempo, não dá para separar.
+- **O que separa:** (1) retomar o `gspo_gold` de 2.048 (pasta `gspo_gold`, ciclos 0 e 1 prontos) até o ciclo 4, com as mesmas questões: ~50 min; (2) o `gspo1` com as questões antigas e 4.096.
+- **Fila depois da parada:** o benchmark de geração começou às 19:41 e roda sozinho (~40 min). A sessão `thor4k` (triagem do `thor_pt` com 4.096 e questões do gold) foi **cancelada às 19:45**, porque repetiria a configuração suspeita; reativar se o teste de separação inocentar o limite.
+
+### 20.38 Replanejamento (08/11 19:55)
+
+Fila agora: `bench-rollout` (termina ~20:05) e depois `gold2048` (`scripts/run_gold2048_resume.sh`): retoma o `gspo_gold` (2.048, as mesmas questões) até o ciclo 4 e avalia. Regra de leitura fixada antes do número, em `estudos/08_registro_de_decisoes.md` (X ≥ 67% e fecha ≥ 90%: o culpado é o limite; X ≤ 64% ou fecha < 87%: são as questões). A triagem do `thor_pt` a 4.096 está cancelada. Benchmark de geração, primeira medida (base): 215 s, 2.837 tokens/s, rodando em média 90 (máximo 115, nunca os 128 permitidos), 186 esperando em média e uso de KV de 86% em média (100% no pico): o cache é o limitador, não o `max_num_seqs`.
+
+### 20.39 Qualidade do raciocínio quando o modelo termina: o SFT só de matemática (`adalberto`) é parte do problema (08/11 ~19:55; pergunta do usuário: "não é o SFT, que tem mais matemática que múltipla escolha?")
+
+Validação, múltipla escolha com thinking, acerto **só nos itens em que todos os modelos comparados fecham o `</think>` e respondem** (condicionar no fechamento escolhe itens mais fáceis: não é uma comparação causal limpa), bootstrap pareado 95%:
+
+| Modelos (itens comuns) | Lumi | `adalberto` (só matemática) | `thor_pt` (matemática + 2.174 problemas de ciência, PT) | `thor_en` (os mesmos dados, em inglês) | `thor_pt_short` (1.255 de ciência) |
+| --- | --- | --- | --- | --- | --- |
+| 189 itens | 87,8% | **82,5%** (−5,3; IC +1,1 a +10,1) | 87,3% (−0,5; IC −3,2 a +4,2) | 86,8% | 83,6% |
+
+- O português **não** custa acerto quando os dados são os mesmos: `thor_pt` e `thor_en` empatam com o Lumi nos itens comuns. Isso **corrige** o achado anterior de "custo do idioma de 5 a 6 pontos".
+- O `adalberto` perde ~5 pontos de qualidade nos itens que fecha; o `thor_pt`, que tem múltipla escolha de ciência, não (`thor_pt` − `adalberto`: +4,8; IC −0,5 a +10,1, no limite). O `thor_pt_short`, com menos ciência (cortado por tamanho), fica no meio (83,6%): coerente com um efeito de dose, **não testado**.
+- O problema do `thor_pt` é **fechar**: termina 254 de 385 itens (66%), contra 332 do Lumi, 332 do `adalberto` e 354 do `gspo1`. Por isso o acerto geral dele é 54,3%.
+- Depois do RL (299 itens comuns): Lumi − `gspo1` = +6,7 (IC +2,0 a +11,0); Lumi − `gspo_thor` = +4,3 (IC +0,7 a +8,0); `gspo_thor` − `gspo1` = +2,3 (IC −1,7 a +6,4, empate). O RL não fecha a diferença de qualidade.
+- **Leitura:** dois problemas separados. (a) Qualidade do raciocínio em múltipla escolha: o SFT só de matemática a prejudica; o SFT com ciência a preserva. (b) Fechamento: o `adalberto` fecha bem e o `thor_pt` não (cauda longa e laços do Nemotron). O que falta é traços de múltipla escolha que fechem limpo, que é o papel do pacote do Qwen. Corrige também a frase "o SFT não é o gargalo" (baseada só no empate depois do RL).
+- Teto, por conta de guardanapo (hipótese forte): qualidade igual à do Lumi nos itens que fecham e fechamento de ~93 a 98% daria ~73 a 75% de múltipla escolha, ou +4 a +5 sobre o Lumi.
+
+### 20.40 Pacote 4 da Thor: traços de múltipla escolha em português com o Qwen3-30B-A3B-Thinking (preparado 08/11 ~20:00, aval do usuário)
+
+- **Por quê:** §20.39 (o SFT só de matemática prejudica a qualidade em múltipla escolha; o do Nemotron com ciência a preserva mas não fecha). O pacote gera o que falta: traços de múltipla escolha, em português, de um professor que fecha limpo.
+- **Conteúdo** (`handoff/thor4/`, empacotado em `handoff/thor4_pacote.tar.gz`, sha256 `6430a38d055908992ee26f426f1ca3c1de4540f31f95f2fb945fbd9a6d6229e3`): 9.957 questões já em português (MedMCQA 4.098, WebInstruct 5.859; gabarito do dataset), tiradas das 10.981 do `grpo_prompts_gold.jsonl` menos as 1.024 que o RL do `gspo_gold` usa em 8 ciclos; embaralhadas e intercaladas entre as fontes (`scripts/make_thor4_prompts.py`; `data/prompts.jsonl` sha256 `3c0195f9…53be`); o `gen_traces.py` do pacote 1 (idêntico ao do 3); `filter_traces_pt_mcq.py` (fecha uma vez, termina sozinho, traço em português, `Resposta: <letra>` na última linha igual ao gabarito; **sem limite de tamanho**: reporta a distribuição de tokens e o acerto do professor por fonte); `pack.sh`; `PLANO_THOR4.md` e `PROMPT_THOR_QWEN.md` (texto para colar no Claude Code da Thor).
+- **Parâmetros:** `--max-tokens 4096` (o da avaliação; traços maiores não fecham e saem), T 0,6, top-p 0,95, top-k 20, 1 traço por questão, começo forçado em português (3 alternativas testadas no teste de 30 questões), blocos de 2.000 com entrega parcial a cada bloco, servidor do Qwen com `--max-model-len 6144`.
+- **Condição:** um servidor por vez na Thor. O Claude Code de lá só para o Nemotron depois da ENTREGA 1 do pacote 3 e com a confirmação do usuário; os blocos 3 e 4 do Nemotron ficam cancelados.
+- **O limite de 1.024 tokens da receita do `adalberto` NÃO é aplicado na Thor:** o corte do exemplo de SFT é escolhido na 4090, olhando a distribuição de tamanhos (ponto de partida: 2.048, como no `thor_pt`).
+- **Aceite:** ≥3.000 mantidos (meta ≥5.000), ≥90% dos traços em português, rendimento ≥20% (abaixo disso a Thor para e reporta).
+- **Depois que chegar:** SFT misto (os dados do `thor_pt`, o resto do pacote 2, o pacote 3 com limite de ~2.048 tokens e os traços do Qwen), medir qualidade e fechamento no ponto de partida (~40 min de SFT, ~13 min de avaliação) e triagem de RL de 4 ciclos.
+- Testes: `tests/test_thor4_filter.py` (4 testes; 361 + 4 passam, sem os de GPU).
+
+### 20.41 Benchmark de velocidade da geração do RL: resultado (08/11 20:01)
+
+`gspo1/merged`, 64 questões x 8 respostas, 4.096 tokens, T 0,6, top-p 0,95 (512 amostras; a cauda pesa mais que nos 2.048 do RL):
+
+| Configuração | Geração | Tokens/s | vs média da base | Truncadas | Recompensa mcq / math | Rodando (média / máx.) | KV médio |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `base` | 215 s | 2.837 | | 7,8% | 0,531 / 0,840 | 90 / 115 | 86% |
+| `base_repete` | 213 s | 2.995 | **ruído: 5,4% entre duas execuções iguais** | 8,2% | 0,555 / 0,813 | 94 / 115 | 90% |
+| `prefix_off` | 195 s | 3.106 | +6,5% | 6,8% | 0,578 / 0,836 | 96 / 115 | 92% |
+| `prefix_off_mem93` | 189 s | 3.186 | **+9,3%** | 6,5% | 0,602 / 0,832 | 109 / 126 | 94% |
+| `flashinfer_prefix_off` | 219 s | 2.896 | −0,7% | 7,8% | 0,539 / 0,832 | 91 / 115 | 88% |
+
+- **Critério fixado antes (≥15% em tokens por segundo e qualidade igual): nenhuma configuração passa.** A melhor (sem prefix caching e memória em 0,93) dá +9,3% sobre a média das duas bases, ~1,7 vez o ruído entre execuções iguais. Não adotada.
+- O cache era o limitador (a base nunca passa de 115 respostas rodando; com 0,93 chega a 126 de 128), mas a mudança dá pouco. O FlashInfer no Mamba não ajuda (−0,7%).
+- Ganho possível se adotássemos o melhor: ~80 s por ciclo de ~970 s, ~11 min por RL de 8 ciclos. Sem risco de qualidade visível (recompensa e truncadas iguais dentro do ruído), mas abaixo do critério.

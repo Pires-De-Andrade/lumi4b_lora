@@ -13,6 +13,7 @@ import math
 import random
 import sys
 import time
+from collections import Counter
 from pathlib import Path
 
 from lumi_ft.train import grpo as R
@@ -135,10 +136,12 @@ def main() -> int:
     order = list(range(len(rows)))
     random.Random(a.seed).shuffle(order)
     t1, steps, clipped_all, ratio_all, n_all = time.time(), 0, 0.0, 0.0, 0
+    tot, first_abs_log_s = Counter(), None  # diagnóstico do corte (só registro; a perda não muda)
     for s0 in range(0, len(order), a.mb_seqs):
         idxs = order[s0: s0 + a.mb_seqs]
         N = sum(rows[i]["loss_end"] - rows[i]["n_prompt"] for i in idxs)
         loss_total = 0.0
+        mbs = Counter()  # contadores deste passo do otimizador
         for mb in sft.micro_batches(rows, idxs, a.token_budget):
             lps = forward_lp(mb)
             loss_fn = R.ppo_clip_loss_sum if a.ratio == "token" else R.gspo_loss_sum
@@ -147,10 +150,25 @@ def main() -> int:
             loss_total += float(loss.detach())
             with torch.no_grad():
                 for i, lp in zip(mb, lps):
-                    r = torch.exp(lp.detach() - old[i].cuda())
+                    o_i = old[i].cuda()
+                    r = torch.exp(lp.detach() - o_i)
                     ratio_all += float(r.sum())
+                    # LEGADO: por token contra os limites do modo em uso. No GSPO (corte da SEQUÊNCIA) isto NÃO mede o corte da perda.
                     clipped_all += float(((r < 1 - a.eps_low) | (r > 1 + a.eps_high)).sum())
                     n_all += r.numel()
+                    if a.ratio == "seq":  # corte real do GSPO: por sequência (A > 0 e s > 1+eps_alto, ou A < 0 e s < 1-eps_baixo)
+                        cs = R.seq_clip_stats(lp, o_i, adv[i], a.eps_low, a.eps_high)
+                        mbs["n"] += 1
+                        mbs["outside"] += cs["outside"]
+                        mbs["active"] += cs["active"]
+                        mbs["abs_log_s"] += abs(cs["log_s"])
+                        mbs["tok"] += cs["n"]
+                        mbs["active_tok"] += cs["n"] * cs["active"]
+                    else:  # modo por token: corte ativo (gradiente zero) do PPO
+                        na, nt = R.token_clip_active(lp, o_i, adv[i], a.eps_low, a.eps_high)
+                        mbs["n"] += 1
+                        mbs["tok"] += nt
+                        mbs["active_tok"] += na
             del lps, loss
         gnorm = float(torch.nn.utils.clip_grad_norm_(list(params.values()), a.clip))
         if not math.isfinite(loss_total) or not math.isfinite(gnorm):
@@ -159,10 +177,24 @@ def main() -> int:
         opt.zero_grad(set_to_none=True)
         steps += 1
         rec = {"step": steps, "loss": round(loss_total, 5), "grad_norm": round(gnorm, 3), "tokens": N, **gpu.peak_gib()}
+        if a.ratio == "seq":
+            rec |= {"seq_clip_active": round(mbs["active"] / max(1, mbs["n"]), 4), "mean_abs_log_s": round(mbs["abs_log_s"] / max(1, mbs["n"]), 7)}
+            first_abs_log_s = rec["mean_abs_log_s"] if first_abs_log_s is None else first_abs_log_s  # 1º passo: ruído numérico entre as duas passadas
+        else:
+            rec |= {"tok_clip_active": round(mbs["active_tok"] / max(1, mbs["tok"]), 4)}
+        tot.update(mbs)
         gpu.append_jsonl(log, rec)
         print(rec, flush=True)
     summary = {"event": "end", **info, "ratio": a.ratio, "mask_truncated": a.mask_truncated, "positives_only": a.positives_only, "steps": steps, "old_logp_seconds": round(t_old), "train_seconds": round(time.time() - t1),
                "mean_ratio": round(ratio_all / max(1, n_all), 4), "clip_fraction": round(clipped_all / max(1, n_all), 4), **gpu.peak_gib()}
+    # `clip_fraction` e `mean_ratio` acima são POR TOKEN (legado). O diagnóstico do corte da perda vem abaixo, com os denominadores:
+    if a.ratio == "seq":
+        summary |= {"seq_clip_active_frac": round(tot["active"] / max(1, tot["n"]), 4),      # sequências com gradiente zerado pelo corte / sequências
+                    "seq_outside_frac": round(tot["outside"] / max(1, tot["n"]), 4),         # sequências com s fora do intervalo / sequências
+                    "seq_clip_active_token_frac": round(tot["active_tok"] / max(1, tot["tok"]), 4),  # tokens dessas sequências / tokens
+                    "mean_abs_log_s": round(tot["abs_log_s"] / max(1, tot["n"]), 7), "first_step_abs_log_s": first_abs_log_s, "n_seq": int(tot["n"])}
+    else:
+        summary |= {"tok_clip_active_frac": round(tot["active_tok"] / max(1, tot["tok"]), 4), "n_seq": int(tot["n"])}
     gpu.append_jsonl(log, summary)
     pm.save_pretrained(out / "adapter")
     tmp = out / "ckpt.tmp"

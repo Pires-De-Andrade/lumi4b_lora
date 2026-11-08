@@ -22,3 +22,5 @@ runs/
 /handoff/thor3/out/
 /handoff/thor3/.venv-gen/
 /handoff/thor3/*.tar.gz
+/handoff/thor4/
+/handoff/thor4_pacote.sha256

@@ -4,7 +4,8 @@ do pacote 3, feita na Thor por handoff/thor3/translate_questions.py) e os junta 
 Cada questão vira {id: "mcq:<id>", kind: "mcq", prompt, gold, n_options, source, category}. O prompt é o MESMO da avaliação
 (`mcq.build_prompt`: instrução + "Questão: ..." + alternativas A), B), ...). Ficam só as questões que passam em tudo:
   1. veredito "ok" da tradução (as recusadas já foram conferidas na Thor);
-  2. esquema válido (2 a 10 alternativas, nenhuma vazia, gabarito é uma letra dentro do intervalo, id único);
+  2. esquema válido (2 a 10 alternativas, nenhuma vazia, gabarito é uma letra dentro do intervalo, id único) e sem marcador de tradução
+     suspeita (`question_quality`: negação do inglês sem correspondente no português, enunciado não traduzido, alternativas repetidas);
   3. sem 8-grama em comum com as nossas provas e a validação (texto em português) nem com o MMLU-ProX em inglês (o original das questões);
   4. prompt de até --max-prompt-tokens tokens.
 Lê com tolerância: uma linha quebrada (cópia parcial tirada com a tradução rodando) é contada e pulada.
@@ -16,6 +17,8 @@ import json
 import sys
 from collections import Counter
 from pathlib import Path
+
+from lumi_ft.data.question_quality import excluded_reason
 
 LETTERS = "ABCDEFGHIJ"
 
@@ -43,6 +46,9 @@ def convert(rec: dict, seen: set, build_prompt, contaminated_pt, contaminated_en
         return None, "esquema_invalido"
     if rec["id"] in seen:
         return None, "id_repetido"
+    bad = excluded_reason(rec)  # negação do inglês que sumiu, enunciado sem tradução, alternativas repetidas (o gabarito pode ter ficado errado)
+    if bad:
+        return None, f"qualidade_{bad}"
     if contaminated_pt(q + "\n" + "\n".join(opts)):
         return None, "8grama_provas_pt"
     en = str(rec.get("question_en") or "") + "\n" + "\n".join(str(o) for o in (rec.get("options_en") or []))

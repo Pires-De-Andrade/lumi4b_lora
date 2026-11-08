@@ -36,7 +36,8 @@ RUNS = [
                                     ("grpo3", "grpo3: Dr. GRPO + 70% múltipla escolha"), ("grpo4", "grpo4: KL 0,04"),
                                     ("raft1", "raft1: só respostas certas"), ("gspo1_c4", "gspo1: razão por sequência, 4 ciclos"), ("gspo1", "gspo1: 8 ciclos"),
                                     ("gspo_thor_it4", "gspo_thor: 4 ciclos a partir do `thor_pt` (só thinking)"),
-                                    ("gspo_thor", "gspo_thor: 8 ciclos a partir do `thor_pt` (Nemotron 30B)")]),
+                                    ("gspo_thor", "gspo_thor: 8 ciclos a partir do `thor_pt` (Nemotron 30B)"),
+                                    ("gspo_gold4k_it4", "gspo_gold4k: 4 ciclos, questões do gold, limite 4.096 (só thinking; parado pela regra do ciclo 4)")]),
 ]
 LAYERS = [("adalberto", "adaptador completo (71 módulos)"), ("adalberto_L00_20", "só camadas 0 a 20"), ("adalberto_L21_41", "só camadas 21 a 41"),
           ("adalberto_noMLP", "sem MLP (Mamba e atenção)"), ("adalberto_MLPonly", "só MLP (do adaptador completo, sem retreinar)")]

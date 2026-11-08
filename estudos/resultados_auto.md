@@ -6,7 +6,7 @@ Validação limpa, nota **estrita**, decodificação gulosa, 4.096 tokens. GSM8K
 
 | Rodada | GSM8K com thinking | GSM8K sem | Múlt. escolha com thinking | Múlt. escolha sem | Forma da múlt. escolha: fecha / PT / trunca / mediana tok | Avaliação (min) |
 | --- | --- | --- | --- | --- | --- | --- |
-| Lumi original (`base`) | 81,7 | 77,2 | 69,6 | 63,9 | 86,2 / 0,0 / 13,8 / 490 | 47 |
+| Lumi original (`base`) | 81,7 | 77,2 | 69,6 | 63,9 | 86,2 / 0,0 / 13,8 / 490 | 168 |
 | Nemotron 3 Nano 4B (pai do Lumi) (`nemotron4b`) | 85,2 (+3,6) ▲ | 63,5 (-13,8) ▼ | 68,3 (-1,3) | 58,7 (-5,2) ▼ | 89,6 / 0,3 / 10,4 / 503 | 5 |
 
 ## SFT: dados e professor
@@ -64,6 +64,7 @@ Validação limpa, nota **estrita**, decodificação gulosa, 4.096 tokens. GSM8K
 | gspo1: 8 ciclos (`gspo1`) | 84,3 (+2,7) ▲ | 78,6 (+1,3) | 67,5 (-2,1) | 57,7 (-6,2) ▼ | 93,2 / 96,1 / 8,1 / 1035 | 12 |
 | gspo_thor: 4 ciclos a partir do `thor_pt` (só thinking) (`gspo_thor_it4`) | 83,7 (+2,1) | – | 65,7 (-3,9) | – | 82,9 / 98,4 / 17,1 / 520 | 6 |
 | gspo_thor: 8 ciclos a partir do `thor_pt` (Nemotron 30B) (`gspo_thor`) | 82,5 (+0,9) | 78,7 (+1,5) | 67,0 (-2,6) | 60,0 (-3,9) | 87,8 / 97,9 / 12,2 / 534 | 7 |
+| gspo_gold4k: 4 ciclos, questões do gold, limite 4.096 (só thinking; parado pela regra do ciclo 4) (`gspo_gold4k_it4`) | 84,6 (+3,0) ▲ | – | 63,1 (-6,5) ▼ | – | 83,9 / 98,5 / 16,4 / 1250 | 9 |
 
 ## Triagem por camadas (adaptador `adalberto` fundido só em parte; só com thinking)
 

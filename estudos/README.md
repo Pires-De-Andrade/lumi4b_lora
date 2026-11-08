@@ -41,6 +41,7 @@ Nenhum candidato passou o critério, e **nenhum candidato foi rodado ainda na su
 | [05_diagnosticos_e_referencias.md](05_diagnosticos_e_referencias.md) | Nemotron 4B, português x inglês, contaminação, dados e pacotes da Thor |
 | [06_registro_experimentos.md](06_registro_experimentos.md) | Toda rodada: configuração, tempo de treino e de avaliação, pasta, estado |
 | [07_hipoteses_e_proximos_passos.md](07_hipoteses_e_proximos_passos.md) | Registro de hipóteses com veredito, ameaças à validade, próximos experimentos |
+| [08_registro_de_decisoes.md](08_registro_de_decisoes.md) | Decisões de rumo de 08/11 (RL com 4.096, adaptador só com thinking, regras do ciclo 4), com o que estudar se der errado |
 | [resultados_auto.md](resultados_auto.md) | Tabela de todas as rodadas, **gerada** dos arquivos de avaliação |
 
 ## Como reproduzir os números
