@@ -1,0 +1,200 @@
+"""[Versão com KL opcional e --limit; o grpo_train.py original fica como estava para o grpo1 e o grpo2] GRPO, passo 2: atualiza o adaptador com as respostas e vantagens de `grpo_rollout.py` (roda no ambiente do treino).
+
+Perda por token estilo PPO com corte assimétrico (0,2 / 0,28), sem KL, normalizada pelo total de tokens de resposta do
+minibatch (como no SFT, a acumulação de gradiente dá o mesmo gradiente de um batch único). As log-probabilidades "antigas"
+vêm de uma passada sem gradiente do próprio treino antes de qualquer atualização, então a razão começa em 1 (não depende da
+diferença numérica entre vLLM e Transformers). Só treina nas respostas com vantagem diferente de zero. Um passo do otimizador
+por minibatch de `--mb-seqs` respostas, uma passada pelos dados. AdamW com o estado guardado entre iterações.
+  PYTHONPATH=src python scripts/grpo_train.py --rollouts runs/grpo/x/it000/rollouts.jsonl --adapter-in runs/train/adalberto/adapter --out runs/grpo/x/it000
+"""
+import argparse
+import json
+import math
+import random
+import sys
+import time
+from pathlib import Path
+
+from lumi_ft.train import grpo as R
+from lumi_ft.train import sft
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--rollouts", required=True)
+    ap.add_argument("--adapter-in", required=True)
+    ap.add_argument("--ckpt-in", default="", help="estado do AdamW da iteração anterior (opcional)")
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--lr", type=float, default=2e-5)
+    ap.add_argument("--mb-seqs", type=int, default=64, help="respostas por passo do otimizador")
+    ap.add_argument("--token-budget", type=int, default=3072)
+    ap.add_argument("--max-seq-len", type=int, default=3072)
+    ap.add_argument("--ckpt", default="full", choices=["full", "none"],
+                    help="gradient checkpointing (padrão: full). Sem ele, uma só resposta de ~2.350 tokens estoura os 24 GiB no backward (OOM no ciclo 0 do grpo1)")
+    ap.add_argument("--ratio", default="token", choices=["token", "seq"], help="razão de importância por token (GRPO/PPO) ou da sequência (GSPO)")
+    ap.add_argument("--eps-low", type=float, default=None, help="padrão: 0,2 (token) ou 3e-4 (seq)")
+    ap.add_argument("--eps-high", type=float, default=None, help="padrão: 0,28 (token) ou 4e-4 (seq)")
+    ap.add_argument("--ref-adapter", default="", help="adaptador de referência da penalidade de KL (o ponto de partida do SFT)")
+    ap.add_argument("--kl-coef", type=float, default=0.0, help="peso da KL (estimador k3, por token) até o adaptador de referência; 0 desliga")
+    ap.add_argument("--limit", type=int, default=0, help="usa só as N primeiras respostas (teste de fumaça)")
+    ap.add_argument("--entropy-only", action="store_true", help="só mede a entropia do modelo nas respostas (sem treinar) e grava <out>/entropy.json")
+    ap.add_argument("--max-samples", type=int, default=0, help="com --entropy-only: usa só N respostas (sorteio fixo pela semente)")
+    ap.add_argument("--clip", type=float, default=1.0)
+    ap.add_argument("--positives-only", action="store_true",
+                    help="RFT/RAFT: treina só nas respostas acima da média do grupo (vantagem 1 e razão do PPO), sem gradiente negativo")
+    ap.add_argument("--mask-truncated", action="store_true", help="não treina nas respostas truncadas (padrão: treina, com vantagem negativa)")
+    ap.add_argument("--seed", type=int, default=0)
+    a = ap.parse_args()
+    if a.eps_low is None:
+        a.eps_low = 0.2 if a.ratio == "token" else 3e-4
+    if a.eps_high is None:
+        a.eps_high = 0.28 if a.ratio == "token" else 4e-4
+
+    import torch
+
+    from lumi_ft import gpu
+    from lumi_ft.modeling import peft_patch
+    from lumi_ft.modeling.load import load_model
+
+    out = Path(a.out)
+    out.mkdir(parents=True, exist_ok=True)
+    samples = [json.loads(line) for line in Path(a.rollouts).read_text().splitlines() if line.strip()]
+    if a.entropy_only:  # todas as respostas, com ou sem sinal; um sorteio fixo se pedido
+        use = [s for s in samples if len(s["prompt_ids"]) + len(s["completion_ids"]) <= a.max_seq_len]
+        if a.max_samples and len(use) > a.max_samples:
+            use = random.Random(a.seed).sample(use, a.max_samples)
+    else:
+        use = [s for s in samples if (s["advantage"] > 0 if a.positives_only else s["advantage"] != 0) and (s["finished"] or not a.mask_truncated)
+               and len(s["prompt_ids"]) + len(s["completion_ids"]) <= a.max_seq_len]
+    if a.limit:
+        use = use[: a.limit]
+    rows = [{"input_ids": s["prompt_ids"] + s["completion_ids"], "n_prompt": len(s["prompt_ids"]),
+             "loss_end": len(s["prompt_ids"]) + len(s["completion_ids"]), "kind": s["kind"]} for s in use]
+    adv = [1.0 if a.positives_only else s["advantage"] for s in use]
+    log = out / "train_log.jsonl"
+    info = {"samples": len(samples), "used": len(use), "reward_mean_all": round(sum(s["reward"] for s in samples) / max(1, len(samples)), 4)}
+    print(info, flush=True)
+    if not use:  # nenhum grupo com sinal: o adaptador fica como está
+        import shutil
+        shutil.copytree(a.adapter_in, out / "adapter", dirs_exist_ok=True)
+        gpu.append_jsonl(log, {"event": "sem_sinal", **info})
+        print("nenhuma resposta com vantagem diferente de zero; adaptador copiado sem mudança")
+        return 0
+
+    cfg = json.loads((Path(a.adapter_in) / "adapter_config.json").read_text())
+    if cfg.get("use_dora"):
+        peft_patch.apply()
+    from peft import PeftModel
+
+    torch.manual_seed(a.seed)
+    model = load_model("native")
+    model.config.use_cache = False
+    if a.ckpt == "full":  # só age no modo train: a passada das log-probabilidades antigas (eval, sem gradiente) não muda
+        model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+    pm = PeftModel.from_pretrained(model, a.adapter_in, is_trainable=True)
+    kl_on = a.kl_coef > 0
+    if kl_on:
+        assert a.ref_adapter, "--kl-coef > 0 exige --ref-adapter"
+        pm.load_adapter(a.ref_adapter, adapter_name="ref", is_trainable=False)  # chama pm.eval(); o laço de treino volta a pm.train()
+        pm.set_adapter("default")
+        assert pm.active_adapter == "default"
+    params = {n: p for n, p in pm.named_parameters() if p.requires_grad and ".ref." not in n}
+    assert params and all(p.dtype == torch.float32 for p in params.values()), "o adaptador deve estar em FP32"
+    opt = torch.optim.AdamW(list(params.values()), lr=a.lr, betas=(0.9, 0.999), weight_decay=0.0)
+    if a.ckpt_in and Path(a.ckpt_in).exists():
+        state = torch.load(a.ckpt_in, map_location="cpu")
+        opt.load_state_dict(state["opt"])
+    gpu.reset_peak()
+
+    def forward_lp(mb: list[int], entropy: bool = False):
+        b = sft.collate(rows, mb)
+        ids, mask = b["input_ids"].cuda(non_blocking=True), b["attention_mask"].cuda(non_blocking=True)
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            logits = pm(input_ids=ids, attention_mask=mask).logits
+        lps = [R.completion_logprobs(logits[k], ids[k], rows[i]["n_prompt"], rows[i]["loss_end"]) for k, i in enumerate(mb)]
+        if not entropy:
+            return lps
+        ents = [R.completion_entropy(logits[k], rows[i]["n_prompt"], rows[i]["loss_end"]) for k, i in enumerate(mb)]
+        return lps, ents
+
+    # 1) log-probabilidades antigas (sem gradiente) e a entropia do modelo nas respostas
+    t0 = time.time()
+    old: dict[int, torch.Tensor] = {}
+    ent_sum, ent_n = {}, {}
+    pm.eval()
+    with torch.no_grad():
+        for mb in sft.micro_batches(rows, list(range(len(rows))), a.token_budget):
+            lps, ents = forward_lp(mb, entropy=True)
+            for i, lp, en in zip(mb, lps, ents):
+                old[i] = lp.cpu()
+                k = rows[i]["kind"]
+                ent_sum[k] = ent_sum.get(k, 0.0) + float(en.sum())
+                ent_n[k] = ent_n.get(k, 0) + en.numel()
+    ref: dict[int, torch.Tensor] = {}
+    if kl_on:  # log-probabilidades do adaptador de referência (sem gradiente); depois volta ao adaptador em treino
+        pm.set_adapter("ref")
+        with torch.no_grad():
+            for mb in sft.micro_batches(rows, list(range(len(rows))), a.token_budget):
+                for i, lp in zip(mb, forward_lp(mb)):
+                    ref[i] = lp.cpu()
+        pm.set_adapter("default")
+        assert pm.active_adapter == "default" and all(p.requires_grad for p in params.values()), "o adaptador em treino deve voltar a ser o ativo"
+    pm.train()
+    t_old = time.time() - t0
+    entropy = {k: round(ent_sum[k] / ent_n[k], 4) for k in ent_sum}
+    entropy["all"] = round(sum(ent_sum.values()) / max(1, sum(ent_n.values())), 4)
+    entropy["mean_logp"] = round(sum(float(v.sum()) for v in old.values()) / max(1, sum(v.numel() for v in old.values())), 4)
+    info["entropy"] = entropy
+    print({"entropy": entropy}, flush=True)
+    if a.entropy_only:
+        (out / "entropy.json").write_text(json.dumps({"adapter": a.adapter_in, "rollouts": a.rollouts, **info, "samples_used": len(rows)}, indent=1))
+        print("EXIT_OK")
+        return 0
+
+    # 2) um passo do otimizador por minibatch
+    order = list(range(len(rows)))
+    random.Random(a.seed).shuffle(order)
+    t1, steps, clipped_all, ratio_all, n_all, kl_all = time.time(), 0, 0.0, 0.0, 0, 0.0
+    for s0 in range(0, len(order), a.mb_seqs):
+        idxs = order[s0: s0 + a.mb_seqs]
+        N = sum(rows[i]["loss_end"] - rows[i]["n_prompt"] for i in idxs)
+        loss_total = 0.0
+        for mb in sft.micro_batches(rows, idxs, a.token_budget):
+            lps = forward_lp(mb)
+            loss_fn = R.ppo_clip_loss_sum if a.ratio == "token" else R.gspo_loss_sum
+            pol = sum(loss_fn(lp, old[i].cuda(), adv[i], a.eps_low, a.eps_high) for i, lp in zip(mb, lps))
+            kl = sum(R.kl_k3_sum(lp, ref[i].cuda()) for i, lp in zip(mb, lps)) if kl_on else 0.0
+            loss = (pol + a.kl_coef * kl) / N
+            kl_all += float(kl)
+            loss.backward()
+            loss_total += float(loss.detach())
+            with torch.no_grad():
+                for i, lp in zip(mb, lps):
+                    r = torch.exp(lp.detach() - old[i].cuda())
+                    ratio_all += float(r.sum())
+                    clipped_all += float(((r < 1 - a.eps_low) | (r > 1 + a.eps_high)).sum())
+                    n_all += r.numel()
+            del lps, loss
+        gnorm = float(torch.nn.utils.clip_grad_norm_(list(params.values()), a.clip))
+        if not math.isfinite(loss_total) or not math.isfinite(gnorm):
+            raise RuntimeError(f"loss ou gradiente não finito: loss={loss_total} gnorm={gnorm}")
+        opt.step()
+        opt.zero_grad(set_to_none=True)
+        steps += 1
+        rec = {"step": steps, "loss": round(loss_total, 5), "grad_norm": round(gnorm, 3), "tokens": N, **gpu.peak_gib()}
+        gpu.append_jsonl(log, rec)
+        print(rec, flush=True)
+    summary = {"event": "end", **info, "ratio": a.ratio, "mask_truncated": a.mask_truncated, "positives_only": a.positives_only, "steps": steps, "old_logp_seconds": round(t_old), "train_seconds": round(time.time() - t1),
+               "mean_ratio": round(ratio_all / max(1, n_all), 4), "kl_coef": a.kl_coef, "kl_mean": round(kl_all / max(1, n_all), 5), "clip_fraction": round(clipped_all / max(1, n_all), 4), **gpu.peak_gib()}
+    gpu.append_jsonl(log, summary)
+    pm.save_pretrained(out / "adapter")
+    tmp = out / "ckpt.tmp"
+    torch.save({"opt": opt.state_dict()}, tmp)
+    tmp.replace(out / "ckpt.pt")
+    print(json.dumps(summary))
+    print("EXIT_OK")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

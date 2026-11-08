@@ -568,4 +568,43 @@ Teste de fumaça (`run_grpo.sh smoke`, 1 iteração, 16 prompts × 4 respostas, 
   - Prompts novos (`scripts/make_thor3_prompts.py`, `lumi_ft/data/thor3.py`): 7.000 do WebInstruct-verified (Apache-2.0; das 27.764 de múltipla escolha, 18.360 com alternativas separáveis; nenhuma área acima de 20%) e 5.000 do MedMCQA (Apache-2.0; só `single`, sem imagem e sem o defeito de OCR "aery"; nenhuma área acima de 8%). Fora 925 + 2.007 com 8-grama em comum com o MMLU-ProX (teste e validação) ou o MMLU (teste) em inglês, e 1.160 + 19.489 enunciados repetidos. Nenhuma das duas fontes está na lista de treino do Lumi.
   - Do nosso lado: `scripts/prepare_thor_translated.py` escreve `think.jsonl` (raciocínio traduzido), `nothink.jsonl` (os outros 30%, disjuntos) e `think_en.jsonl` (o par com o raciocínio original em inglês, mesmo prompt e mesma resposta em português: o experimento "raciocínio em inglês" com os mesmos problemas). `filter_translated.py` agora também descontamina `think_en`.
   - Testes: `tests/test_thor3_pkg.py` (27; tradução de ponta a ponta com servidor falso, retomada, conversão, parsers). Não testado: a tradução com o servidor real (é o passo 1 do plano da Thor).
-- **Fila da GPU** (20:12): `grpo1` rodando, depois `adalberto_lr5e5`.
+- **GRPO, ciclo 0** (`grpo1`, 256 questões × 8 respostas, 11 min, 2,2 M de tokens, limite de 2.048): recompensa média 0,87 em matemática e 0,54 em múltipla escolha; truncadas 3% e 23%; sinal (grupos com respostas diferentes) 23% e 66%. O treino do ciclo 0 estourou a memória (OOM no `backward`, 22 GiB, com uma só resposta de ~2.350 tokens e sem gradient checkpointing); a fila disparou o `adalberto_lr5e5` no lugar, que parei no passo ~170 e apaguei. Correção: `grpo_train.py --ckpt full` (padrão), pico de 12,3 GiB; o `grpo1` recomeçou às 20:36 aproveitando as respostas do ciclo 0. O limite de 2.048 tokens na geração (contra 4.096 na avaliação) é por tempo e memória do treino e porque a truncada vale 0 (pressiona a terminar); é uma escolha, não um requisito.
+- **Fila da GPU** (20:36): `grpo1` (~3 h), depois `adalberto_lr5e5`.
+
+### 20.12 Entropia do GRPO e salvaguardas (07/11/2026, 23:30)
+
+- **`grpo1` terminado** (8 ciclos, avaliação gulosa na validação limpa; ● = IC inclui zero):
+
+| | GSM8K com / sem thinking | Múltipla escolha com / sem thinking |
+| --- | --- | --- |
+| Lumi | 81,7 / 77,2 | 69,6 / 63,9 |
+| adalberto (ponto de partida) | 83,3 / 79,3 | 62,3 / 58,2 |
+| `grpo1` após 3 ciclos | 83,3 / – | 64,4 / – |
+| `grpo1` após 6 ciclos | 83,9 / – | 65,5 / – |
+| `grpo1` final (8 ciclos) | 82,8 ● / 77,5 ● | 66,8 ● (−2,9; −7,5 a +2,1) / 61,6 ● (−2,3) |
+
+  Forma do `grpo1` final: fecha `</think>` em 98,4% (GSM8K) e 91,7% (múltipla escolha), traço em português 99,2%, truncadas 8,6% na múltipla escolha, mediana 904 tokens. Pelo critério do PRD ainda não vence: a diferença para o Lumi é empate estatístico, a queda sem thinking (−2,3) passa de 1 ponto e 91,7% fecha < 98%.
+- **A entropia do modelo nas próprias respostas explode** (`scripts/run_grpo_entropy.sh`, 512 respostas sorteadas por ciclo, modelo que gerou cada ciclo, nats por token, temperatura 1): 
+
+| Ciclo | todas | múltipla escolha | matemática | logp média do token amostrado |
+| --- | --- | --- | --- | --- |
+| 0 (adalberto) | 0,42 | 0,54 | 0,24 | −0,31 |
+| 1 | 0,49 | 0,65 | 0,26 | −0,36 |
+| 2 | 0,55 | 0,75 | 0,27 | −0,41 |
+| 3 | 0,71 | 0,99 | 0,29 | −0,51 |
+| 4 | 0,97 | 1,31 | 0,53 | −0,69 |
+| 5 | 1,56 | 2,03 | 0,90 | −1,10 |
+| 6 | 2,14 | 2,89 | 1,02 | −1,62 |
+| 7 | 1,98 | 2,31 | 1,61 | −1,60 |
+
+  Acompanha as respostas sem `</think>` (11 → 223 de 1.024 na múltipla escolha do ciclo 0 ao 6) e o lixo no fim das respostas. A avaliação gulosa continua boa porque o caminho mais provável se mantém. A hipótese (negativos longos sem KL) fica de pé como candidata, mas não está isolada.
+- **Salvaguardas implementadas** (CPU: 12 testes em `tests/test_grpo.py`): entropia e logp média por ciclo em `train_log.jsonl`; `scripts/grpo_guard.py` + `run_grpo.sh --max-noclose` (para se > X das respostas de um tipo terminarem sem um único `</think>`); `run_grpo.sh --top-p`, `--mask-truncated 1` (filtro de truncadas do DAPO) e `--ratio seq` (variante GSPO, desligada por padrão).
+- **Fila da GPU** (23:30): avaliação do `grpo1` com 4 atualizações (`grpo1_u4`, para comparar com o `grpo2` no mesmo número de passos), depois `grpo2` (4 ciclos, T 0,6, top-p 0,95, `--mask-truncated 1`, `--max-noclose 0,05`), depois `adalberto_lr5e5`.
+
+### 20.13 `grpo2`, teste do KL e triagem por camadas (08/11/2026, 01:05)
+
+- **`grpo2`** (4 ciclos, T 0,6, top-p 0,95, `--mask-truncated 1`, guarda `--max-noclose 0,05`; ● = IC inclui zero), validação limpa com / sem thinking: GSM8K 82,7 / 79,6 ●, múltipla escolha **66,0** (−3,6; −8,1 a +0,8) ● / 59,5 (−4,4) ●. Treino estável: entropia 0,42 → 0,34 → 0,27 → 0,23 (as respostas vêm de uma geração mais fria, então o número não é comparável ao do `grpo1`), nenhuma resposta sem `</think>`. **Piorou a forma:** trunca 16,1% (adalberto 13,8%, `grpo1` com 4 atualizações 9,6%) e fecha `</think>` em 84,2%. Leitura (hipótese): o filtro de truncadas tira da perda as respostas que ensinavam a parar, e as respostas usadas por ciclo caem de ~900 para ~600. Com 4 atualizações a nota é parecida com a do `grpo1` (66,0 contra 64,9).
+- **Teste do KL** (`grpo_train_kl.py`, k3 por token, referência = adaptador do SFT): 0,0003 com política = referência e 0,129 com a política do ciclo 6 do `grpo1`.
+- **Fila refeita** (01:02): `grpo4` (T 0,6, top-p 0,95, **sem** o filtro, KL 0,04), triagem por camadas do `adalberto`, `grpo3` (Dr. GRPO, 70% de múltipla escolha, sem o filtro), `raft1` (só respostas certas), `gspo1` (razão por sequência, sem o filtro) e `adalberto_lr5e5`. Todos com 4 ciclos, a partir do `adalberto`, guarda a 5%.
+- **Triagem por camadas** (`scripts/merge_adapter_layers.py`): funde só parte do adaptador, sem treinar (zera o efeito do resto): camadas 0-20, camadas 21-41, sem MLP (Mamba e atenção) e só MLP. Avaliação só com thinking na validação. Aproximada: zerar depois do treino não equivale a treinar só naquelas camadas. A hipótese a testar é a do MLP (fatos nos MLPs; o adaptador mexe nos 17).
+- **Código:** `grpo_train_kl.py` e `run_grpo_kl.sh` são cópias com KL e `--limit`; a ser unificado com `grpo_train.py` e `run_grpo.sh` quando nenhum job os usar. `run_grpo.sh` ganhou `--top-p`, `--mask-truncated`, `--max-noclose`, `--ratio seq` (GSPO) e `--positives-only`; `grpo_status.py` resume um GRPO por ciclo. Lição: não editar um `.sh` enquanto ele roda (o `grpo1` saiu com código 1 por isso; resultados intactos).

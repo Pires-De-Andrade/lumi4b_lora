@@ -277,7 +277,8 @@ A matriz acima era o plano com os dados do GigaVerbo; depois do gate da fase 2 p
 | `selfdist` | Lumi com prefill em português: 6.365 com raciocínio, 2.204 sem | 78,1% / 77,5% | 57,9% / 63,4% |
 | `adalberto_dora` | mesmo dado, DoRA | 84,0% / 79,1% | 62,6% / 57,7% |
 | `nemotron4b` (referência, sem treino) | Nemotron 3 Nano 4B | 85,2% / 63,5% | 68,3% / 58,7% |
-| `grpo1` | GRPO a partir do adaptador `adalberto`, 8 iterações | pendente | pendente |
+| `grpo1` | GRPO a partir do adaptador `adalberto`, 8 iterações (T 0,8, 2.048 tokens) | 82,8% / 77,5% | 66,8% / 61,6% (empate com o Lumi, IC inclui zero; a entropia explodiu e o `</think>` fecha em 91,7%) |
+| `grpo2` | o mesmo com 4 iterações, T 0,6, top-p 0,95, truncadas fora da perda | 82,7% / 79,6% | 66,0% / 59,5% (estável, mas trunca 16,1% e fecha 84,2%) |
 | `adalberto_lr5e5` | mesmo dado, lr 5e-5 | pendente | pendente |
 
 \* validação completa de 1.000 itens, não só os 676 limpos.

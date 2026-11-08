@@ -116,6 +116,31 @@ def completion_logprobs(logits, input_ids, n_prompt: int, n_total: int):
     return torch.log_softmax(lg, dim=-1).gather(-1, tgt.unsqueeze(-1)).squeeze(-1)
 
 
+def completion_entropy(logits, n_prompt: int, n_total: int, chunk: int = 512):
+    """Entropia (em nats, temperatura 1) da distribuição do modelo em cada posição da resposta de UMA sequência: o mesmo recorte
+    de `completion_logprobs`. FP32, por blocos de `chunk` posições (o vocabulário é grande). Devolve tensor [n_total - n_prompt]."""
+    import torch
+
+    lg = logits[n_prompt - 1: n_total - 1]
+    out = []
+    for s in range(0, lg.shape[0], chunk):
+        lp = torch.log_softmax(lg[s: s + chunk].float(), dim=-1)
+        out.append(-(lp.exp() * lp).sum(-1))
+    return torch.cat(out) if out else lg.new_zeros(0).float()
+
+
+def noclose_share(stats: dict) -> dict[str, float]:
+    """Por tipo (`math`, `mcq`), a fração das respostas que terminaram sozinhas sem exatamente um `</think>` (sinal de degeneração
+    na amostragem). `stats` é o `rollouts.stats.json`: `whys` com chaves `tipo:motivo`."""
+    tot, bad = Counter(), Counter()
+    for k, v in stats["whys"].items():
+        kind, why = k.split(":", 1)
+        tot[kind] += v
+        if why == "sem_um_unico_close":
+            bad[kind] += v
+    return {kind: bad[kind] / tot[kind] for kind in tot}
+
+
 def ppo_clip_loss_sum(logp_new, logp_old, adv: float, eps_low: float = 0.2, eps_high: float = 0.28):
     """Soma, sobre os tokens da resposta, de -min(r*A, clip(r, 1-eps_low, 1+eps_high)*A). Quem divide pelo total de
     tokens do minibatch é o laço de treino (assim a acumulação de gradiente dá o mesmo gradiente de um batch único)."""
@@ -125,3 +150,28 @@ def ppo_clip_loss_sum(logp_new, logp_old, adv: float, eps_low: float = 0.2, eps_
     unclipped = ratio * adv
     clipped = torch.clamp(ratio, 1.0 - eps_low, 1.0 + eps_high) * adv
     return -torch.minimum(unclipped, clipped).sum()
+
+
+def gspo_loss_sum(logp_new, logp_old, adv: float, eps_low: float = 3e-4, eps_high: float = 4e-4):
+    """Variante GSPO (Group Sequence Policy Optimization): a razão de importância e o corte são da SEQUÊNCIA inteira (média
+    geométrica das razões dos tokens), não de cada token. Para manter a normalização por tokens do minibatch do laço de treino,
+    o termo da sequência é multiplicado pelo número de tokens: o gradiente de cada token fica `-A * s` (com `s` a razão da
+    sequência) e é cortado quando `s` sai de [1 - eps_low, 1 + eps_high]. Cortes bem menores que os do PPO por token, porque a
+    razão da sequência varia mais que a de um token (valores do paper do GSPO: 3e-4 e 4e-4)."""
+    import torch
+
+    n = logp_new.numel()
+    s = torch.exp((logp_new - logp_old).mean())
+    unclipped = s * adv
+    clipped = torch.clamp(s, 1.0 - eps_low, 1.0 + eps_high) * adv
+    return -torch.minimum(unclipped, clipped) * n
+
+
+def kl_k3_sum(logp, logp_ref):
+    """Soma, sobre os tokens da resposta, do estimador k3 da KL(política || referência): exp(r) - r - 1 com r = logp_ref - logp
+    (sempre >= 0, zero quando as duas coincidem). O gradiente em `logp` é 1 - exp(r): puxa a política de volta para a referência
+    e cresce rápido quando ela se afasta (a razão de probabilidades fica pequena)."""
+    import torch
+
+    r = logp_ref - logp
+    return (torch.exp(r) - r - 1).sum()

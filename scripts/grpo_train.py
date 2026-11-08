@@ -29,12 +29,23 @@ def main() -> int:
     ap.add_argument("--mb-seqs", type=int, default=64, help="respostas por passo do otimizador")
     ap.add_argument("--token-budget", type=int, default=3072)
     ap.add_argument("--max-seq-len", type=int, default=3072)
-    ap.add_argument("--eps-low", type=float, default=0.2)
-    ap.add_argument("--eps-high", type=float, default=0.28)
+    ap.add_argument("--ckpt", default="full", choices=["full", "none"],
+                    help="gradient checkpointing (padrão: full). Sem ele, uma só resposta de ~2.350 tokens estoura os 24 GiB no backward (OOM no ciclo 0 do grpo1)")
+    ap.add_argument("--ratio", default="token", choices=["token", "seq"], help="razão de importância por token (GRPO/PPO) ou da sequência (GSPO)")
+    ap.add_argument("--eps-low", type=float, default=None, help="padrão: 0,2 (token) ou 3e-4 (seq)")
+    ap.add_argument("--eps-high", type=float, default=None, help="padrão: 0,28 (token) ou 4e-4 (seq)")
+    ap.add_argument("--entropy-only", action="store_true", help="só mede a entropia do modelo nas respostas (sem treinar) e grava <out>/entropy.json")
+    ap.add_argument("--max-samples", type=int, default=0, help="com --entropy-only: usa só N respostas (sorteio fixo pela semente)")
     ap.add_argument("--clip", type=float, default=1.0)
+    ap.add_argument("--positives-only", action="store_true",
+                    help="RFT/RAFT: treina só nas respostas acima da média do grupo (vantagem 1 e razão do PPO), sem gradiente negativo")
     ap.add_argument("--mask-truncated", action="store_true", help="não treina nas respostas truncadas (padrão: treina, com vantagem negativa)")
     ap.add_argument("--seed", type=int, default=0)
     a = ap.parse_args()
+    if a.eps_low is None:
+        a.eps_low = 0.2 if a.ratio == "token" else 3e-4
+    if a.eps_high is None:
+        a.eps_high = 0.28 if a.ratio == "token" else 4e-4
 
     import torch
 
@@ -45,11 +56,16 @@ def main() -> int:
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     samples = [json.loads(line) for line in Path(a.rollouts).read_text().splitlines() if line.strip()]
-    use = [s for s in samples if s["advantage"] != 0 and (s["finished"] or not a.mask_truncated)
-           and len(s["prompt_ids"]) + len(s["completion_ids"]) <= a.max_seq_len]
+    if a.entropy_only:  # todas as respostas, com ou sem sinal; um sorteio fixo se pedido
+        use = [s for s in samples if len(s["prompt_ids"]) + len(s["completion_ids"]) <= a.max_seq_len]
+        if a.max_samples and len(use) > a.max_samples:
+            use = random.Random(a.seed).sample(use, a.max_samples)
+    else:
+        use = [s for s in samples if (s["advantage"] > 0 if a.positives_only else s["advantage"] != 0) and (s["finished"] or not a.mask_truncated)
+               and len(s["prompt_ids"]) + len(s["completion_ids"]) <= a.max_seq_len]
     rows = [{"input_ids": s["prompt_ids"] + s["completion_ids"], "n_prompt": len(s["prompt_ids"]),
-             "loss_end": len(s["prompt_ids"]) + len(s["completion_ids"])} for s in use]
-    adv = [s["advantage"] for s in use]
+             "loss_end": len(s["prompt_ids"]) + len(s["completion_ids"]), "kind": s["kind"]} for s in use]
+    adv = [1.0 if a.positives_only else s["advantage"] for s in use]
     log = out / "train_log.jsonl"
     info = {"samples": len(samples), "used": len(use), "reward_mean_all": round(sum(s["reward"] for s in samples) / max(1, len(samples)), 4)}
     print(info, flush=True)
@@ -68,6 +84,8 @@ def main() -> int:
     torch.manual_seed(a.seed)
     model = load_model("native")
     model.config.use_cache = False
+    if a.ckpt == "full":  # só age no modo train: a passada das log-probabilidades antigas (eval, sem gradiente) não muda
+        model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     pm = PeftModel.from_pretrained(model, a.adapter_in, is_trainable=True)
     params = {n: p for n, p in pm.named_parameters() if p.requires_grad}
     assert params and all(p.dtype == torch.float32 for p in params.values()), "o adaptador deve estar em FP32"
@@ -77,24 +95,41 @@ def main() -> int:
         opt.load_state_dict(state["opt"])
     gpu.reset_peak()
 
-    def forward_lp(mb: list[int], grad: bool):
+    def forward_lp(mb: list[int], entropy: bool = False):
         b = sft.collate(rows, mb)
         ids, mask = b["input_ids"].cuda(non_blocking=True), b["attention_mask"].cuda(non_blocking=True)
         with torch.autocast("cuda", dtype=torch.bfloat16):
             logits = pm(input_ids=ids, attention_mask=mask).logits
         lps = [R.completion_logprobs(logits[k], ids[k], rows[i]["n_prompt"], rows[i]["loss_end"]) for k, i in enumerate(mb)]
-        return lps
+        if not entropy:
+            return lps
+        ents = [R.completion_entropy(logits[k], rows[i]["n_prompt"], rows[i]["loss_end"]) for k, i in enumerate(mb)]
+        return lps, ents
 
-    # 1) log-probabilidades antigas (sem gradiente)
+    # 1) log-probabilidades antigas (sem gradiente) e a entropia do modelo nas respostas
     t0 = time.time()
     old: dict[int, torch.Tensor] = {}
+    ent_sum, ent_n = {}, {}
     pm.eval()
     with torch.no_grad():
         for mb in sft.micro_batches(rows, list(range(len(rows))), a.token_budget):
-            for i, lp in zip(mb, forward_lp(mb, False)):
+            lps, ents = forward_lp(mb, entropy=True)
+            for i, lp, en in zip(mb, lps, ents):
                 old[i] = lp.cpu()
+                k = rows[i]["kind"]
+                ent_sum[k] = ent_sum.get(k, 0.0) + float(en.sum())
+                ent_n[k] = ent_n.get(k, 0) + en.numel()
     pm.train()
     t_old = time.time() - t0
+    entropy = {k: round(ent_sum[k] / ent_n[k], 4) for k in ent_sum}
+    entropy["all"] = round(sum(ent_sum.values()) / max(1, sum(ent_n.values())), 4)
+    entropy["mean_logp"] = round(sum(float(v.sum()) for v in old.values()) / max(1, sum(v.numel() for v in old.values())), 4)
+    info["entropy"] = entropy
+    print({"entropy": entropy}, flush=True)
+    if a.entropy_only:
+        (out / "entropy.json").write_text(json.dumps({"adapter": a.adapter_in, "rollouts": a.rollouts, **info, "samples_used": len(rows)}, indent=1))
+        print("EXIT_OK")
+        return 0
 
     # 2) um passo do otimizador por minibatch
     order = list(range(len(rows)))
@@ -105,8 +140,9 @@ def main() -> int:
         N = sum(rows[i]["loss_end"] - rows[i]["n_prompt"] for i in idxs)
         loss_total = 0.0
         for mb in sft.micro_batches(rows, idxs, a.token_budget):
-            lps = forward_lp(mb, True)
-            loss = sum(R.ppo_clip_loss_sum(lp, old[i].cuda(), adv[i], a.eps_low, a.eps_high) for i, lp in zip(mb, lps)) / N
+            lps = forward_lp(mb)
+            loss_fn = R.ppo_clip_loss_sum if a.ratio == "token" else R.gspo_loss_sum
+            loss = sum(loss_fn(lp, old[i].cuda(), adv[i], a.eps_low, a.eps_high) for i, lp in zip(mb, lps)) / N
             loss.backward()
             loss_total += float(loss.detach())
             with torch.no_grad():
@@ -125,7 +161,7 @@ def main() -> int:
         rec = {"step": steps, "loss": round(loss_total, 5), "grad_norm": round(gnorm, 3), "tokens": N, **gpu.peak_gib()}
         gpu.append_jsonl(log, rec)
         print(rec, flush=True)
-    summary = {"event": "end", **info, "steps": steps, "old_logp_seconds": round(t_old), "train_seconds": round(time.time() - t1),
+    summary = {"event": "end", **info, "ratio": a.ratio, "mask_truncated": a.mask_truncated, "positives_only": a.positives_only, "steps": steps, "old_logp_seconds": round(t_old), "train_seconds": round(time.time() - t1),
                "mean_ratio": round(ratio_all / max(1, n_all), 4), "clip_fraction": round(clipped_all / max(1, n_all), 4), **gpu.peak_gib()}
     gpu.append_jsonl(log, summary)
     pm.save_pretrained(out / "adapter")
