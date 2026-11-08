@@ -6,7 +6,7 @@ Estado em 08/11/2026. Este diretório organiza o projeto como uma série de estu
 
 Ajustar o `ceia-br/lumi-4b` v0.2 (commit `27b30f40…`) com LoRA ou DoRA para que, com `enable_thinking=True`, ele **raciocine em português e acerte mais**, sem piorar o modo sem thinking. O Lumi original raciocina em inglês, e o cartão dele diz que o thinking deve ficar desligado nesta versão.
 
-**Critério de vitória (PRD, não alterado):** contra o Lumi, em cada modo, o intervalo de confiança da diferença fica acima de 0; pelo menos 98% das respostas fecham `</think>` e respondem; pelo menos 90% dos traços saem em português; o modo sem thinking não cai mais de 1 ponto. A nota é a média de 5 provas: GSM8K-PT, MMLU-ProX PT, ENEM, BLUEX e OAB (4 das 5 são de múltipla escolha).
+**Critério de vitória:** contra o Lumi, em cada modo, o intervalo de confiança da diferença fica acima de 0; pelo menos 98% das respostas fecham `</think>` e respondem; pelo menos 90% dos traços saem em português; o modo sem thinking não cai mais de 1 ponto. A nota é a média de 5 provas: GSM8K-PT, MMLU-ProX PT, ENEM, BLUEX e OAB (4 das 5 são de múltipla escolha).
 
 ## Onde estamos
 
@@ -25,9 +25,9 @@ Nenhum candidato passou o critério, e **nenhum candidato foi rodado ainda na su
 ## Achados principais
 
 1. **O português se aprende, a múltipla escolha se perde.** Qualquer SFT com traços de professor põe o raciocínio em português (97 a 100% dos traços) e acerta a matemática, mas a múltipla escolha com thinking cai de 5 a 12 pontos ([02](02_sft_dados_e_professor.md)).
-2. **Dos fatores testados no SFT, nenhum recuperou a múltipla escolha:** limite de tokens, taxa de aprendizado, DoRA, tamanho do efeito do adaptador. O professor importa: a autodestilação do Lumi foi o pior caso.
+2. **Dos fatores testados no SFT, nenhum recuperou a múltipla escolha:** limite de tokens, taxa de aprendizado, DoRA, tamanho do efeito do adaptador, tipo de bloco (só MLP). O professor importa: a autodestilação do Lumi foi o pior caso.
 3. **O idioma da pergunta não é o problema.** O Lumi original acerta o mesmo em português e em inglês (diferença −1,3 a +0,4, sem significância) ([05](05_diagnosticos_e_referencias.md)).
-4. **A triagem por camadas sugere onde está o dano:** o adaptador só dos MLPs mantém a múltipla escolha do Lumi (69,6%) e dá +2,2 na matemática, mas deixa o raciocínio em inglês; as partes do Mamba e da atenção carregam o dano, mesmo com traço em inglês ([03](03_ablacao_camadas_e_mlp.md)). É uma triagem pós-treino. O teste de treino só com MLP está em andamento.
+4. **O lugar do adaptador não explica o dano.** A triagem pós-treino sugeria que só o Mamba e a atenção causavam a perda (o "só MLP" ficava em 69,6%), mas **treinado do zero** o adaptador só com MLP (34 módulos, metade dos parâmetros) aprende português (98,5%), ganha na matemática (83,4%) e perde igual na múltipla escolha (62,3% ▼; sem thinking 54,3% ▼). A triagem enganou. Cinco mudanças de adaptador ou de otimização deram 62 a 64%; a causa provável são os dados ([03](03_ablacao_camadas_e_mlp.md)).
 5. **O RL recupera quase tudo na múltipla escolha com thinking** (62,3% → 66 a 68%, empate com o Lumi), mas só o GSPO ficou estável; os outros estouraram a entropia ou perderam forma. O RL treina só o modo com thinking e **não protege o sem thinking**: em duas rodadas ele caiu a 43,1% ([04](04_rl_grpo.md)).
 
 ## Mapa dos documentos
@@ -36,7 +36,7 @@ Nenhum candidato passou o critério, e **nenhum candidato foi rodado ainda na su
 | --- | --- |
 | [01_protocolo.md](01_protocolo.md) | Modelos, máquinas, treino, avaliação, conjuntos, estatística, testes, limites |
 | [02_sft_dados_e_professor.md](02_sft_dados_e_professor.md) | Estudos de SFT: dados, professor, taxa, limite de tokens, DoRA, escala, tradução |
-| [03_ablacao_camadas_e_mlp.md](03_ablacao_camadas_e_mlp.md) | Triagem por camadas e por tipo de bloco; treino só com MLP |
+| [03_ablacao_camadas_e_mlp.md](03_ablacao_camadas_e_mlp.md) | Triagem por camadas e por tipo de bloco; treino só com MLP (que refutou a triagem) |
 | [04_rl_grpo.md](04_rl_grpo.md) | RL: GRPO e variantes, entropia, estabilidade, ferramentas |
 | [05_diagnosticos_e_referencias.md](05_diagnosticos_e_referencias.md) | Nemotron 4B, português x inglês, contaminação, dados e pacotes da Thor |
 | [06_registro_experimentos.md](06_registro_experimentos.md) | Toda rodada: configuração, tempo de treino e de avaliação, pasta, estado |

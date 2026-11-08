@@ -58,7 +58,7 @@ Na validação limpa do GSM8K (676 itens) o `viab` tem 67,2% e o Lumi 81,7% (a c
 
 **Custo:** 450 passos, **25,7 min**, 5,5 mil tokens/s, perda 0,42 → 0,21; avaliação 13 min.
 
-| Validação limpa | Lumi | `adalberto` | Diferença (IC 95%) |
+| Validação limpa | Lumi | `SFT LORA adalberto` | Diferença (IC 95%) |
 | --- | --- | --- | --- |
 | GSM8K com thinking | 81,7% | 83,3% | +1,6 (−1,0 a +4,3) |
 | GSM8K sem thinking | 77,2% | 79,3% | +2,1 (−0,7 a +4,9) |
@@ -149,3 +149,124 @@ Defeitos: 120 dos 125 traços abrem com "Okay, então…", terminologia técnica
 3. O dano sem thinking, onde existe, é parte formato e parte deriva do adaptador sobre dados fora da distribuição do Lumi.
 
 Hipóteses abertas e próximos experimentos: [07_hipoteses_e_proximos_passos.md](07_hipoteses_e_proximos_passos.md). A parte arquitetural (qual bloco do adaptador causa o dano): [03_ablacao_camadas_e_mlp.md](03_ablacao_camadas_e_mlp.md).
+
+## E12. SFT com os traços do Nemotron 30B da Thor, em português e em inglês (entrega parcial)
+
+**Perguntas:** (1) traços de um professor **da mesma família** do Lumi (Nemotron 3 Nano 30B) evitam a perda na múltipla escolha que o Qwen3-30B causou (H19 e H20)? (2) o raciocínio em português custa nota em relação ao mesmo raciocínio em inglês (H21)?
+
+**Dados** (`traduzidos_com_raciocinio.jsonl`, pacote 3 da Thor, recebido em 08/11 às 11:47; **parcial**: só os 70% com raciocínio, os 30% sem raciocínio não vieram): o Nemotron 30B gerou o raciocínio em inglês e o traduziu com ele mesmo (T=0, conferências por pedaço: tamanho, números, "respondeu em vez de traduzir"); 5.278 registros, todos aprovados (`verdict: ok`):
+
+| Fonte | Recebidos | Depois do filtro de contaminação | Tipo |
+| --- | --- | --- | --- |
+| `gsm8k_train` (matemática) | 1.746 | 1.744 | gabarito oficial |
+| `gv_math` (matemática) | 1.059 | 1.041 | gabarito do GigaVerbo |
+| `mot_science` (ciência, múltipla escolha) | 2.473 | 2.461 | letra majoritária dos traços do R1 |
+| **Total** | **5.278** | **5.246** (17 duplicatas da validação por assinatura de números e Jaccard, 15 por 8-grama) | |
+
+Com o limite de 2.048 tokens (o de 1.024 do `adalberto` cortaria o p90 dos raciocínios de ciência, 1.848 tokens) e a interseção entre as versões em português e em inglês, ficam **4.927 problemas** (2.174 de ciência, 1.719 do `gsm8k_train`, 1.034 do `gv_math`), os mesmos nas duas versões. Às duas se somam as 5.544 linhas sem raciocínio do GigaVerbo (`--base`, como no `adalberto`): 10.471 linhas; 5,15 milhões de tokens (português) e 4,75 milhões (inglês); ~328 passos por época.
+
+**Conferência de qualidade** (CPU): 100% dos raciocínios em português (heurística de idioma) e 100% em inglês nos originais (as versões em inglês têm 2 a 3% "mistos"); todas as respostas terminam no formato de avaliação (`Resposta: X` igual ao gabarito; `#### N`); letras do gabarito balanceadas (A 573, B 615, C 632, D 641). Mediana do raciocínio: 587 tokens (ciência) e ~265 (matemática), contra 176 palavras do Qwen3-30B na matemática.
+
+**Achado de estilo (sustenta H19):** a fração de raciocínios que **repetem a instrução de formato do enunciado** ("Garanta que…", "formato `#### N`", "sem unidades") é característica da família Nemotron e do Lumi, e **não** do Qwen:
+
+| Fonte | Matemática | Múltipla escolha |
+| --- | --- | --- |
+| Qwen3-30B (`adalberto`, saídas do modelo treinado) | 0% | 1% |
+| Lumi original | 84% | 33% |
+| Nemotron 4B | 77% | 62% |
+| **Nemotron 30B (os traços desta entrega, em inglês)** | **97%** | **82%** |
+
+(A mesma expressão regular em português e inglês, aplicada ao raciocínio de cada fonte; saídas de validação para os modelos e traços de treino para o 30B. É uma medida de estilo, não de qualidade.) Ou seja: o Qwen3-30B ensinou um estilo que o Lumi não tem; o Nemotron 30B ensina o estilo que o Lumi já tem.
+
+**Desenho** (três SFTs, mesmos hiperparâmetros do `adalberto`: r=16, alpha 32, lr 1e-4, 1 época; entram na fila `cap-queue` na frente do estudo de capacidade):
+
+| Rodada | Raciocínio | Problemas | O que isola |
+| --- | --- | --- | --- |
+| `thor_pt` | Nemotron 30B, traduzido para o português | 4.927 (matemática + ciência) | H20: professor da mesma família |
+| `thor_en` | os **mesmos** problemas, raciocínio original em inglês (prompt e resposta finais em português) | 4.927 | H21: o idioma do raciocínio, com tudo o mais igual |
+| `thor_pt_math` | Nemotron 30B, português, **só a matemática** | 2.753 | separa o estilo do professor do formato da prova (ver abaixo) |
+
+**Confundidor, e por que o terceiro treino existe:** o `adalberto` só tinha traços de matemática. O `thor_pt` traz **2.174 exemplos de múltipla escolha no formato exato da avaliação**. Se a múltipla escolha subir no `thor_pt`, a causa pode ser o estilo do professor **ou** o treino no formato da prova. O `thor_pt_math` tem o estilo do Nemotron sem nenhuma questão de múltipla escolha: se ele já recupera a nota, é estilo; se só o `thor_pt` recupera, é formato ou domínio.
+
+**Previsões** (escritas antes dos resultados; a regra de leitura do E11 vale aqui: sinal = +4 pontos ou mais contra o `adalberto` na múltipla escolha com thinking, no mesmo sentido sem thinking):
+
+| Resultado | Leitura |
+| --- | --- |
+| `thor_pt` ≥ 66% e `thor_pt_math` ≥ 66%, português ≥ 90% | Estilo da família: H19 e H20 apoiadas; esse é o SFT base do RL |
+| `thor_pt` ≥ 66% e `thor_pt_math` ≈ 62% | O ganho vem de ver questões de múltipla escolha no treino, não do estilo |
+| `thor_pt` ≈ 62% | O professor e o estilo não são a causa; a perda vem de ajustar o modelo a traços de qualquer fonte |
+| `thor_en` − `thor_pt` ≥ +4 | O português custa nota (H21 apoiada) |
+| \|`thor_en` − `thor_pt`\| < 4 | O idioma do raciocínio não custa nota: o objetivo de raciocinar em português é "gratuito" |
+
+**Limites:** entrega parcial (4.927 problemas contra 5.842 de raciocínio no `adalberto`; sem os exemplos sem raciocínio do professor, só os do GigaVerbo); o gabarito de ciência é fraco (letra majoritária do R1, não oficial); uma execução por rodada; a tradução foi feita pelo próprio Nemotron 30B (erros de tradução não auditados por pessoa: a revisão D-10 continua pendente).
+
+**Estado:** dados prontos (`data/thor_pt.parquet`, `thor_en.parquet`, `thor_pt_math.parquet`); `thor_pt` e `thor_en` feitos; `thor_pt_math` **descartado** (o controle só faria sentido para explicar um ganho na múltipla escolha, que o `thor_pt` não teve).
+
+### Resultado do `thor_pt` (treino 17,6 min, 328 passos, perda 0,83 → ~0,77; avaliação 12 min)
+
+| Validação limpa | Lumi | `adalberto` | **`thor_pt`** |
+| --- | --- | --- | --- |
+| Múlt. escolha com thinking | 69,6% | 62,3% ▼ | **54,3%** ▼ (−15,3; −8,1 contra o `adalberto`, IC −12,7 a −3,4) |
+| Múlt. escolha sem thinking | 63,9% | 58,2% ▼ | **62,9%** (−1,0; +4,7 contra o `adalberto`, IC −0,3 a +9,9) |
+| GSM8K com thinking | 81,7% | 83,3% | **77,8%** ▼ (−3,8; −5,5 contra o `adalberto`, IC −8,1 a −3,0) |
+| GSM8K sem thinking | 77,2% | 79,3% | 74,6% (−2,7) |
+| Fecha `</think>` (múlt. escolha / GSM8K) | 86,2% / 95,3% | 86,8% / 96,8% | **66,0% / 88,1%** |
+| Trunca em 4.096 tokens (múlt. escolha) | 13,8% | 13,8% | **34,0%** |
+| Traço em português | 0% | 99,4% | 99,6% |
+| Mediana de tokens (múlt. escolha) | 490 | 1.176 | 703 |
+
+**O que aconteceu:** o `thor_pt` **piorou** o raciocínio com thinking, e a causa é **laço de repetição**, não erro de raciocínio.
+- **Laços:** 127 das 131 respostas truncadas (97%) terminam repetindo a mesma frase ("Na verdade, o osso hioide se origina do primeiro arco faríngeo (ou seja, …). Na verdade, …") até estourar os 4.096 tokens. Em todas as respostas de múltipla escolha, laços passam de 13,2% (Lumi) e 10,4% (`adalberto`) para **33,0%** (`thor_pt`); no GSM8K, de 4,5% e 2,3% para 11,9%. O Lumi original já entra em laço em 96% das suas truncadas: é uma fragilidade da família, que este treino amplifica.
+- **Raciocínio, quando termina, está igual ao do Lumi.** Nos itens que os dois terminam: múltipla escolha 84,0% contra 84,5% (−0,4; IC −4,2 a +3,8; n=238) e GSM8K 90,6% contra 88,9% (+1,8; IC −0,2 a +3,7; n=566). Contra o `adalberto` (n=237): 84,4% contra 81,9% (+2,5; IC −2,1 a +7,2). (O "82,3% de acerto quando termina" do resumo engana: os itens que terminam são os mais fáceis; só vale a comparação nos mesmos itens.) Já o `adalberto` perde por **errar** (72,3% de acerto quando termina, contra 80,7% do Lumi), com laço normal.
+- **Dos 131 itens em que o `thor_pt` entra em laço, o Lumi termina 94 e acerta 67 (71%).** Sem laços, o `thor_pt` ficaria perto do Lumi.
+- **Sem thinking** é o melhor SFT até agora: múltipla escolha 62,9% (−1,0, dentro da tolerância do critério), mas o GSM8K sem thinking cai 2,7.
+
+**Leitura contra as previsões:** caiu na terceira linha ("`thor_pt` ≈ 62%"), pior ainda. Mas o mecanismo é outro do esperado. **H19 e H20 parcialmente apoiadas:** o professor da mesma família **não** causa erro de raciocínio (quando termina, iguala o Lumi, enquanto o Qwen perdia 8 pontos por erro), mas troca o dano por laços de repetição. Isso muda o próximo passo: não é mais "achar dados melhores", é **eliminar os laços**, que é o que o RL com recompensa zero para truncadas já fez (fechamento 86,8% → 93,2% no `gspo1`). **Hipótese H33:** o RL (GSPO) a partir do `thor_pt` leva a múltipla escolha acima do Lumi, porque tira os laços sem perder a qualidade de raciocínio. A decidir depois de `thor_en` (o laço vem do idioma?) e `thor_pt_math` (vem das questões de múltipla escolha?).
+
+**Limites:** uma execução; treino com 4.927 problemas e 328 passos (não 450); os laços foram contados por um critério simples (6-grama repetido 8 vezes ou mais nas últimas 6.000 letras); a qualidade da tradução não foi auditada por pessoa.
+
+## E13. SFT só com exemplos sem thinking: melhorar o modo sem thinking primeiro (ADIADO, 08/11 13:05)
+
+**Atualização (08/11, 13:05): adiado.** O usuário voltou o foco ao modo **com thinking** (RL a partir do `thor_pt`, [04](04_rl_grpo.md)); os três treinos saíram da fila e os dados continuam prontos em `data/nt_*.parquet`. O diagnóstico D8 ([05](05_diagnosticos_e_referencias.md)) vale de qualquer forma. **Decisão original (08/11, 13:00):** a prioridade passaria a ser **melhorar o modo sem thinking**; só depois se analisa como treinar o thinking sem estragá-lo. O RL a partir do `thor_pt` (H33) e a proteção do modo sem thinking no RL (H22) ficam para essa segunda fase.
+
+**Ponto de partida (D8, [05](05_diagnosticos_e_referencias.md)):** o conteúdo da múltipla escolha sem thinking não caiu (flexível 63 a 64%); o que cai é o formato (`Resposta: X`). A matemática sem thinking sobe com respostas passo a passo do Qwen3-30B. Ou seja, parte do que falta se corrige com **dados no formato certo**, e isso se testa barato: treino só com exemplos sem thinking (11 a 15 min) mais a avaliação nos dois modos (12 min).
+
+**Desenho** (as linhas sem thinking do GigaVerbo, 5.544, entram em todas; hiperparâmetros do `adalberto`; nenhum exemplo com thinking):
+
+| Rodada | Exemplos sem thinking de professor | Tokens |
+| --- | --- | --- |
+| `nt_qwen` | 2.914 respostas de matemática do Qwen3-30B (passo a passo, as do `adalberto`) | 3,07 M |
+| `nt_thor` | 4.927 respostas do Nemotron 30B (2.174 de múltipla escolha no formato da prova, 2.753 de matemática curtas) | 2,85 M |
+| `nt_both` | 2.174 de múltipla escolha do Nemotron + 2.914 de matemática do Qwen | 3,61 M |
+
+**Previsões** (escritas antes dos resultados; sinal = +4 pontos contra o Lumi ou contra a rodada de comparação):
+
+| ID | Hipótese | Previsão |
+| --- | --- | --- |
+| H34 | A perda estrita da múltipla escolha sem thinking é de formato | `nt_thor` e `nt_both` com estrita ≥ 62% e linha final ≥ 95%; `nt_qwen` (sem exemplo de múltipla escolha) fica abaixo, como o `adalberto` (≤ 60%) |
+| H35 | O estilo passo a passo do Qwen é o que sobe o GSM8K sem thinking | GSM8K sem thinking: `nt_qwen` e `nt_both` ≥ 79% na validação limpa (Lumi 77,2%); `nt_thor` ≈ 75% |
+| H36 | Treinar só o modo sem thinking deixa o thinking como está | Com thinking: múltipla escolha e GSM8K dentro de ±3 do Lumi (69,6% e 81,7%), traço em português ≈ 0% |
+| H37 | Só formato não passa o Lumi: a múltipla escolha sem thinking estaciona em ~64% | `nt_both` com estrita entre 62 e 66% |
+
+**O que cada resultado decide:** se H34 e H35 se confirmam, `nt_both` vira a base do modo sem thinking (múltipla escolha empatada com o Lumi e matemática acima). Se H37 também se confirma, passar do Lumi na múltipla escolha sem thinking exige mais que formato: **RL no modo sem thinking** (recompensa pela nota estrita, respostas curtas) com gabarito oficial das 12.000 questões novas da Thor, e/ou conhecimento novo. H36 diz se os dois modos podem ser treinados em separado (uma resposta antecipada para a segunda fase).
+
+**Limites:** uma execução por rodada; sem exemplos com thinking, o adaptador não ensina português no raciocínio (esse objetivo fica para a fase seguinte); as respostas do Nemotron são o texto final **depois** do raciocínio, não geração sem thinking do próprio professor.
+
+
+
+### Resultado do `thor_en` (os mesmos 4.927 problemas, raciocínio original em inglês; treino 16 min, avaliação 10 min)
+
+| Validação limpa | Lumi | `thor_pt` (português) | **`thor_en`** (inglês) | `thor_en` − `thor_pt` (IC 95%) |
+| --- | --- | --- | --- | --- |
+| Múlt. escolha com thinking | 69,6% | 54,3% ▼ | **60,3%** ▼ (−9,4) | **+6,0** (+1,6 a +10,4) |
+| GSM8K com thinking | 81,7% | 77,8% ▼ | **83,1%** (+1,5) | **+5,3** (+2,7 a +8,0) |
+| Fecha `</think>` (múlt. escolha) | 86,2% | 66,0% | 75,3% | |
+| Laços (múlt. escolha / GSM8K) | 13,2% / 4,5% | 33,0% / 11,9% | **22,6% / 3,7%** | |
+| Múlt. escolha sem thinking | 63,9% | 62,9% | 56,1% ▼ (−7,8) | −6,8 (−11,4 a −2,1) |
+| GSM8K sem thinking | 77,2% | 74,6% | 65,7% ▼ (−11,5) | −8,9 (−12,0 a −5,8) |
+
+**Leitura (H21):** com os mesmos problemas, as mesmas respostas e o mesmo professor, raciocinar em **inglês** rende **+5 a +6 pontos** com thinking contra raciocinar em português. **H21 apoiada: o português tem custo real.** Parte do custo é laço (22,6% contra 33,0% na múltipla escolha; 3,7% contra 11,9% no GSM8K), então o idioma torna o modelo mais propenso a repetir. Mas o inglês **também** perde para o Lumi na múltipla escolha (60,3%, −9,4 ▼, e laços de 22,6% contra 13,2%): **qualquer SFT com os traços do Nemotron 30B piora a múltipla escolha com thinking**, em qualquer idioma. O português é parte do problema; o SFT com estes traços é o resto.
+
+**Sem thinking, o `thor_en` cai por formato:** as respostas estão em português (99% a 100%), mas a linha final some em ~10% (`#### N` no GSM8K, 90% têm; `Resposta: X` na múltipla escolha, 88% têm). Exemplo: "A resposta é: 6" no lugar de "#### 6". O acerto flexível é 79,1% no GSM8K (contra 80,9% do `thor_pt`), então o conteúdo quase não mudou. Treinar o raciocínio em inglês com resposta em português parece enfraquecer a obediência ao formato do modo sem thinking.
+
+**Consequência para o objetivo:** o projeto exige raciocínio em português, e esse custo de ~5 a 6 pontos precisa ser recuperado depois do SFT. O `gspo_thor` (RL a partir do `thor_pt`, [04](04_rl_grpo.md)) é o teste: se ele levar o `thor_pt` acima do Lumi, o custo do português foi pago pelo RL.

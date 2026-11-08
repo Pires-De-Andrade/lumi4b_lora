@@ -17,8 +17,15 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     d = TrainConfig()
     ap.add_argument("--arm", choices=["lora", "dora"], default=d.arm)
-    ap.add_argument("--targets", choices=["all", "mlp"], default=d.targets, help="módulos do adaptador: os 71 do PRD ou só o MLP (34)")
+    ap.add_argument("--targets", default=d.targets,
+                    help="módulos do adaptador: all (os 71 do PRD) ou tipos de bloco separados por vírgula: mamba, mlp, attn")
     ap.add_argument("--r", type=int, default=d.r)
+    ap.add_argument("--alpha", type=float, default=d.alpha, help="alpha do LoRA (padrão 2*r, escala alpha/r = 2)")
+    ap.add_argument("--rslora", action="store_true", help="escala alpha/raiz(r) em vez de alpha/r (rank-stabilized LoRA)")
+    ap.add_argument("--layers", default=d.layers, help="faixa fechada de camadas com adaptador, ex.: 0-20 (vazio = todas)")
+    ap.add_argument("--rank-pattern", default=d.rank_pattern, help='JSON {regex do módulo: rank}, ex.: \'{"in_proj": 4}\'')
+    ap.add_argument("--alpha-pattern", default=d.alpha_pattern, help="JSON idem para alpha (vazio: mantém alpha/r de cada módulo)")
+    ap.add_argument("--lr-mult", default=d.lr_mult, help='JSON {regex do parâmetro: multiplicador do lr}, ex.: \'{"in_proj": 0.2}\'')
     ap.add_argument("--lr", type=float, default=d.lr)
     ap.add_argument("--epochs", type=int, default=d.epochs)
     ap.add_argument("--eff-batch", type=int, default=d.eff_batch, help="sequências por passo do otimizador")
@@ -36,7 +43,9 @@ def main() -> int:
     a = ap.parse_args()
     cfg = TrainConfig(arm=a.arm, r=a.r, lr=a.lr, epochs=a.epochs, eff_batch=a.eff_batch, token_budget=a.token_budget,
                       seed=a.seed, mix=a.mix, frac=a.frac, viab=a.viab, data=a.data, valid=a.valid, out=a.out,
-                      save_every=a.save_every, log_every=a.log_every, max_steps=a.max_steps, targets=a.targets)
+                      save_every=a.save_every, log_every=a.log_every, max_steps=a.max_steps, targets=a.targets,
+                      alpha=a.alpha, rslora=a.rslora, layers=a.layers, rank_pattern=a.rank_pattern,
+                      alpha_pattern=a.alpha_pattern, lr_mult=a.lr_mult)
     print(json.dumps(train(cfg), indent=1, default=str))
     print("EXIT_OK")
     return 0

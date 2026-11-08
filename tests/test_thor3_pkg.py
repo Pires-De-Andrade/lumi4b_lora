@@ -212,3 +212,61 @@ def test_prompts_file_integrity():
     assert len(rows) == len({r["id"] for r in rows}) == 12000 and {r["kind"] for r in rows} == {"mcq"}
     assert all(len(r["options"]) >= 3 and r["ref"] in "ABCDEFGHIJ"[: len(r["options"])] and r["prompt"].endswith(r["options"][-1]) for r in rows)
     assert all("Resposta: <letter>" in r["prompt"] for r in rows)
+
+
+# ------------------------------------------------- filter_translated.py: matemática sem `prompt` e duplicata da validação
+def test_filter_translated_handles_math_without_prompt_and_val_duplicates():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("filter_translated", "scripts/filter_translated.py")
+    ft = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ft)
+
+    class Idx:  # índice de brinquedo: casa por substring
+        def __init__(self, bad):
+            self.bad = bad
+
+        def hits(self, text):
+            return any(b in text for b in self.bad)
+
+    math = {"id": "m1", "question": "João tem 5 maçãs e compra 7.", "answer": "5 + 7 = 12\n#### 12"}  # sem prompt nem options
+    assert ft.record_text(math).startswith("João tem 5 maçãs") and ft.record_text(math).endswith("#### 12")
+    mcq = {"id": "q1", "question": "Qual?", "options": ["a", "b"], "prompt": "x\n\ny\n\nQual?\na\nb"}
+    assert ft.record_text(mcq) == "Qual?\na\nb"
+    with_prompt = {"id": "p1", "question": "Q", "prompt": "instrução\n\ncabeçalho\n\nQ\nopções"}
+    assert ft.record_text(with_prompt).endswith("Q\nopções")
+    val_sig = {}  # nenhuma duplicata conhecida
+    assert ft.drop_reason(math, Idx([]), Idx([]), val_sig) is None
+    assert ft.drop_reason(math, Idx(["5 maçãs"]), Idx([]), val_sig) == "removido_8grama"
+    assert ft.drop_reason(mcq, Idx([]), Idx(["Qual?"]), val_sig) == "removido_8grama"
+    from lumi_ft.data import teacher as T
+
+    sig = T.number_signature(math["question"])
+    dup = {sig: [set(T._words(math["question"]))]}  # a mesma questão, já na validação: é duplicata
+    assert ft.drop_reason(math, Idx([]), Idx([]), dup) == "removido_duplicata_validacao"
+    assert ft.drop_reason(mcq, Idx([]), Idx([]), dup) is None  # a de múltipla escolha não passa pelo filtro de números
+
+
+# ------------------------------------------------- translate_questions.py: só enunciado e alternativas, sem traços
+def test_translate_questions_only(tmp_path):
+    qspec = importlib.util.spec_from_file_location("translate_questions", ROOT / "handoff" / "thor3" / "translate_questions.py")
+    Q = importlib.util.module_from_spec(qspec)
+    qspec.loader.exec_module(Q)
+    base = {"source": "medmcqa", "kind": "mcq", "category": "Psychiatry", "options": ["one", "two", "three", "four"], "ref": "B", "prompt": "x"}
+    rows = [{**base, "id": "q1", "question": "Which is right?"},
+            {**base, "id": "q2", "question": "Which is right? SABOTE"},          # o tradutor "responde" em vez de traduzir
+            {**base, "id": "q3", "question": "Which is right?", "ref": ""},        # sem gabarito: nem entra
+            {**base, "id": "q1", "question": "Which is right?"}]                    # repetida: uma vez só
+    p = tmp_path / "prompts.jsonl"
+    p.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    a = Args()
+    a.prompts, a.out, a.start = str(p), str(tmp_path / "out" / "q.jsonl"), 0
+    rep = Q.run(a, FakeTok(), fake_post)
+    got = {r["id"]: r for r in map(json.loads, Path(a.out).read_text().splitlines())}
+    assert set(got) == {"q1", "q2"} and rep["questoes"] == 2 and rep["ok"] == 1
+    ok = got["q1"]
+    assert ok["verdict"] == "ok" and ok["question_pt"] == "Qual é certa?" and ok["options_pt"] == ["um", "dois", "três", "quatro"]
+    assert ok["ref"] == "B" and ok["question_en"] == "Which is right?" and ok["category"] == "Psychiatry" and "thought_pt" not in ok
+    assert got["q2"]["verdict"].startswith("q:") and "options_pt" not in got["q2"]
+    assert Q.run(a, FakeTok(), fake_post)["questoes"] == 2 and len(Path(a.out).read_text().splitlines()) == 2  # retoma sem repetir
+    assert json.loads(Path(a.out + ".report.json").read_text())["ok_por_fonte"] == {"medmcqa": 1}

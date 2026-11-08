@@ -638,3 +638,75 @@ Teste de fumaça (`run_grpo.sh smoke`, 1 iteração, 16 prompts × 4 respostas, 
 ### 20.15 Organização dos estudos (08/11/2026, 11:10)
 
 - Criada a pasta `estudos/` com os resultados organizados como estudos de ablação: `README.md` (pergunta, critério, achados, mapa), `01_protocolo.md`, `02_sft_dados_e_professor.md`, `03_ablacao_camadas_e_mlp.md`, `04_rl_grpo.md`, `05_diagnosticos_e_referencias.md`, `06_registro_experimentos.md` (tempos de treino e de avaliação de cada rodada, ≈ 18 h de GPU no total), `07_hipoteses_e_proximos_passos.md` (registro de hipóteses H0 a H25 com veredito, ameaças à validade, próximos experimentos) e `resultados_auto.md`, **gerado** por `scripts/gen_estudos_resultados.py` a partir de `runs/eval/` (nota estrita na validação limpa, diferença contra o Lumi com IC 95%, forma da saída, minutos de avaliação). Regerar depois de cada rodada nova.
+
+### 20.16 `adalberto_mlp`: o treino só com MLP refuta a triagem (08/11/2026, 11:30)
+
+- SFT só com LoRA em `up_proj` e `down_proj` (34 módulos, 8,5 M de parâmetros), mesmos dados e hiperparâmetros do `adalberto`: 23,9 min de treino, 12 min de avaliação (os dois modos).
+
+| | Lumi | `adalberto` | `adalberto_mlp` |
+| --- | --- | --- | --- |
+| GSM8K com / sem thinking | 81,7 / 77,2 | 83,3 / 79,3 | 83,4 / 80,2 (▲ por 0,0 no limite inferior) |
+| Múlt. escolha com / sem thinking | 69,6 / 63,9 | 62,3 ▼ / 58,2 ▼ | **62,3 ▼ / 54,3 ▼** |
+| Fecha `</think>` / trunca (MCQ) | 86,2 / 13,8 | 86,8 / 13,8 | 84,7 / 15,8 |
+| Traço em português (MCQ) | 0% | 99,4% | 98,5% |
+
+- Leitura: o MLP sozinho aprende português e a matemática, mas perde a múltipla escolha igual ao adaptador completo. A triagem pós-treino (69,6%) enganou, como a ameaça (i) previa. H9a e H9c ficam refutadas; a causa provável são os dados, e o teste que decide é o par em inglês e português (H21) do pacote 3 da Thor. Seis mudanças de adaptador ou de otimização deram 62 a 64%; só o RL passou disso.
+- Documentos atualizados: `estudos/03` (E10 completo, grade 2×2 rebaixada), `README`, `06` (tempos), `07` (H9a, H9b, H9c, H10, próximos passos), `resultados_auto.md` regerado.
+
+### 20.17 Estudo de capacidade, tipo de bloco e posição (08/11/2026, 11:40)
+
+- Pedido: testar hiperparâmetros diferentes por tipo de bloco e por camada, e a RSLoRA em rank alto, enquanto a Thor não devolve os dados. "Todas as combinações" são centenas de rodadas (~37 min cada), então virou um plano em etapas de 11 rodadas, uma mudança por vez, com hipóteses e previsões escritas antes (`estudos/03`, E11; `estudos/07`, H26 a H30).
+- Código (padrões iguais ao do PRD, 36 testes novos, 322 no total): `peft_setup.py` (`parse_targets`, `parse_layers`, `target_regex`, `resolve_alpha_pattern`; `check_targets` com contagem independente quando há faixa de camadas), `sft.py` (`alpha`, `rslora`, `layers`, `rank_pattern`, `alpha_pattern`, `lr_mult`; grupos de parâmetros do AdamW com multiplicador do lr), `train_sft.py` (flags). `merge_adapter.py` não mudou: o PEFT grava rank e alpha por módulo e a RSLoRA no `adapter_config.json`.
+- Fumaça na GPU (3 passos): r=64 com RSLoRA e `--lr-mult` treina (68,2 M de parâmetros, pico de 20,6 GiB reservados) e a fusão passa; Mamba + atenção nas camadas 0 a 20 com rank 4 no `in_proj` treina (1,6 M de parâmetros).
+- Fila: `scripts/run_capacity.sh` lê `scripts/capacity_plan.txt` uma linha por vez (dá para reordenar e estender sem editar o script); espera a GPU ficar livre; pula rodadas completas; `touch runs/jobs/cap.stop` para entre rodadas; estado em `runs/jobs/cap.status`; regera `resultados_auto.md` a cada rodada. Sessão tmux `cap-queue`, início 11:35 com `cap_r04_std`.
+- Leis de escala: com alpha fixo, `std` (alpha 32) dá escala 32/r e `rs` (alpha 8, RSLoRA) dá 8/raiz(r); as duas passam pelo ponto do `adalberto` (r=16, escala 2). Rank isolado não distingue as leis; r=4 e r=64 entram nas duas.
+
+### 20.18 Primeira entrega da Thor: traduzidos com raciocínio (08/11/2026, 12:00)
+
+- Chegou `traduzidos_com_raciocinio.jsonl` (5.278 registros, 30 MB; o `.gz` tem o mesmo conteúdo, sha conferido) em `~/barros/`, fora do projeto; copiado (não movido) para `data/thor3/out/translated.jsonl`. É o pacote 3 **parcial**: só os 70% com raciocínio (1.746 `gsm8k_train`, 1.059 `gv_math`, 2.473 `mot_science`); faltam os 30% sem raciocínio e as questões novas.
+- **Bug encontrado e corrigido** em `scripts/filter_translated.py`: quebrava (`KeyError: 'prompt'`) em registros de matemática, que não têm `prompt`; e não aplicava o filtro de duplicata da validação (assinatura de números + Jaccard) que o resto do pipeline aplica e que o `estudos/05` (D3) descreve. Agora `record_text` e `drop_reason` (testados, 1 teste novo, 323 no total) fazem as duas coisas. Efeito: 5.278 → 5.246 (17 duplicatas da validação, 15 por 8-grama; as versões PT e EN sofrem as mesmas remoções).
+- Dados de treino: `data/thor_pt.parquet`, `thor_en.parquet` (os mesmos 4.927 problemas; limite de 2.048 tokens; interseção entre as duas versões) e `thor_pt_math.parquet` (2.753 problemas, só matemática); todos somam as 5.544 linhas sem raciocínio do GigaVerbo. Conferência: 100% em português, formato e gabarito corretos em todos.
+- **Achado de estilo:** o Nemotron 30B repete a instrução de formato dentro do raciocínio em 97% (matemática) e 82% (múltipla escolha) das vezes, o Lumi em 84% e 33%, o Nemotron 4B em 77% e 62%, e o `adalberto` (Qwen3-30B) em 0% e 1%. Sustenta que o Qwen3 ensinou um estilo estranho ao Lumi (H19).
+- **Confundidor tratado:** o `adalberto` não tinha questões de múltipla escolha no treino; o `thor_pt` tem 2.174. Por isso o controle `thor_pt_math` (mesmo professor, sem múltipla escolha).
+- Fila: `thor_pt`, `thor_en` e `thor_pt_math` entram na frente do estudo de capacidade (linhas futuras de `scripts/capacity_plan.txt`, inseridas com troca atômica do arquivo; a rodada em execução, `cap_r04_std`, não foi tocada). Hipóteses, previsões e regra de leitura escritas antes dos resultados em `estudos/02` (E12).
+
+### 20.19 `thor_pt`: o professor da mesma família não erra mais, mas entra em laço (08/11/2026, 12:50)
+
+- `thor_pt` (SFT com 4.927 problemas do Nemotron 30B em português + 5.544 linhas sem raciocínio do GigaVerbo): múltipla escolha com thinking **54,3% ▼** (−15,3 contra o Lumi), GSM8K com thinking 77,8% ▼, **fecha `</think>` só em 66,0%** (múlt. escolha) e 88,1% (GSM8K); trunca 34,0%. Sem thinking: 62,9% (−1,0) na múltipla escolha, 74,6% no GSM8K.
+- **Mecanismo:** 97% das truncadas (127/131) são laços de repetição ("Na verdade, … Na verdade, …"). Laços em todas as respostas de múltipla escolha: Lumi 13,2%, `adalberto` 10,4%, `thor_pt` 33,0%. Nos itens que o `thor_pt` e o Lumi terminam, a nota é a mesma (84,0% contra 84,5%); o "acerto quando termina" do resumo engana (viés de seleção: só os fáceis terminam). Dos 131 itens em laço, o Lumi termina 94 e acerta 71%.
+- Diferença para o `adalberto`: o Qwen perde por **errar** (72,3% de acerto quando termina), o Nemotron por **laço**. Muda o próximo passo: eliminar laços (RL com recompensa zero para truncada) em vez de procurar dados melhores. Hipótese H33. Aguardam `thor_en` e `thor_pt_math`.
+- Documentado em `estudos/02` (E12), `06` e `07` (H19, H20 e H33).
+
+### 20.20 Foco no modo sem thinking (08/11/2026, 13:00)
+
+- Decisão do usuário: melhorar primeiro o modo sem thinking, depois analisar como não piorá-lo ao treinar o thinking. O GSPO a partir do `thor_pt` (H33) e a proteção do modo sem thinking no RL (H22) ficam adiados.
+- **Diagnóstico (`estudos/05`, D8):** a múltipla escolha sem thinking perde por **formato**, não por conteúdo. Flexível 62,9 a 63,9% em todas as rodadas (Lumi 63,4%); estrita cai porque a linha `Resposta: X` some (87,8% no `adalberto`, 83,9% no `adalberto_mlp`, 96,1% no `thor_pt`). Os SFTs só de matemática respondem mais longo (400 contra 166 tokens). No GSM8K sem thinking, o estilo passo a passo do Qwen sobe +2 a +4; as respostas curtas do Nemotron não.
+- Três SFTs só com exemplos sem thinking na fila (`nt_qwen`, `nt_thor`, `nt_both`; `data/nt_*.parquet`, ~3 milhões de tokens cada), na frente do `thor_pt_math` e do estudo de capacidade. Hipóteses H34 a H37 e previsões em `estudos/02` (E13).
+- Pedido à Thor (prompt em `handoff/thor3/PROMPT_THOR_08NOV.md`): entregar os registros sem raciocínio (30% por hash) e gerar as 12.000 questões novas (gabarito oficial) **em blocos** de 3.000, com tradução e pacote a cada bloco.
+
+### 20.21 O foco volta ao modo com thinking; GSPO a partir do `thor_pt` (08/11/2026, 13:05)
+
+- Decisão do usuário (13:05): esquecer o sem thinking por ora; melhorar o **com thinking**. O E13 (`nt_*`) foi adiado: saíram da fila (`# ADIADOS` no fim de `scripts/capacity_plan.txt`), dados em `data/nt_*.parquet`. O diagnóstico D8 (sem thinking perde por formato) continua válido.
+- **Fila:** `touch runs/jobs/cap.stop` (a `cap-queue` termina depois do `thor_en`, sem iniciar o `thor_pt_math`); a sessão `rl-thor` espera a `cap-queue` acabar e roda `gspo_thor`: `run_grpo.sh gspo_thor --init runs/train/thor_pt/adapter --iters 8 --eval-every 4 --n-prompts 256 --group 8 --lr 2e-5 --max-new 2048 --temperature 0.6 --top-p 0.95 --ratio seq --max-noclose 0.85` (a receita do `gspo1`; guarda de 5% para 85% porque o `thor_pt` já começa com ~34% de truncadas). Previsões em `estudos/04`.
+- Pendentes depois do RL: retomar `thor_pt_math` e o estudo de capacidade (apagar `cap.stop` e relançar `scripts/run_capacity.sh`; ele pula o que já está completo).
+
+### 20.22 O que pedir à Thor com o foco no thinking: tradução só das questões (08/11/2026, 13:10)
+
+- Argumento: o RL de múltipla escolha usa 3.715 questões de ciência com gabarito fraco (letra majoritária do R1). As 12.000 questões do pacote 3 têm gabarito oficial e cobrem negócios, economia, finanças (837 a 838 cada), matemática, física, química, biologia, psicologia, história e áreas médicas: mais parecidas com a suíte de teste (MMLU-ProX, ENEM, BLUEX, OAB) do que ciência de pós-graduação.
+- Problema: o `translate_thor.py` só traduz registros **com traço do professor** (`kept.jsonl`), então só as questões que o professor acertou virariam prompts (as mais fáceis, viés de dificuldade). Solução sem alterar nada do pacote: novo arquivo `handoff/thor3/translate_questions.py` (sha256 `9e66416a…c5bb`), que reaproveita `question_block`, `translate_piece`, `check_piece` e `split_question_block` e traduz **todas** as 12.000, sem raciocínio (~20 a 40 min na Thor). Teste na CPU (`tests/test_thor3_pkg.py`, 29 testes no arquivo): enunciado e alternativas traduzidos, "respondeu em vez de traduzir" recusado, questão sem gabarito ignorada, retomada sem repetir.
+- `handoff/thor3/PROMPT_THOR_08NOV.md` reescrito: 1) estado; 2) **traduzir só as questões** (teste de 30, depois todas, `questions_pt.tar.gz`); 3) terminar o passo 2 e entregar também os registros sem raciocínio; 4) traços do pacote 3 em blocos de 3.000, com tradução e pacote a cada bloco. O usuário precisa copiar o novo arquivo para a pasta do pacote (a mesma do `translate_thor.py`).
+- Do lado da 4090, falta o conversor de `questions_pt.jsonl` em prompts de RL (`prompt`, `gold`, `n_options`, `kind`), a escrever quando o arquivo chegar.
+
+### 20.23 `thor_en`: o português custa 5 a 6 pontos; qualquer SFT do Nemotron piora a múltipla escolha (08/11/2026, 13:20)
+
+- `thor_en` (mesmos 4.927 problemas e respostas do `thor_pt`, raciocínio original em inglês): com thinking, múltipla escolha **60,3%** ▼ e GSM8K **83,1%**; fecha `</think>` em 75,3%; laços 22,6% (múlt. escolha) e 3,7% (GSM8K). Contra o `thor_pt`: **+6,0** (IC +1,6 a +10,4) e **+5,3** (IC +2,7 a +8,0). H21 apoiada: o português custa 5 a 6 pontos, em parte por laços.
+- O inglês também perde para o Lumi (−9,4 ▼): o SFT com traços do Nemotron piora a múltipla escolha em qualquer idioma; o português é parte do problema, não o todo.
+- Sem thinking, o `thor_en` cai (GSM8K 65,7% ▼, múlt. escolha 56,1% ▼) por **formato**: as respostas estão em português, mas a linha final some em ~10% (flexível 79,1% no GSM8K).
+- O `gspo_thor` (RL a partir do `thor_pt`) começou às 13:14 (ciclo 0, geração); cap-queue parou como previsto (13:14).
+
+### 20.24 E11 encerrado em 1 de 15 rodadas (08/11/2026, 13:25)
+
+- Pergunta do usuário: por que analisar `thor_pt_math` e `thor_en` se o problema é raciocínio em português na múltipla escolha? Resposta honesta: eram diagnósticos. `thor_en` já respondeu (o português custa 5 a 6 pontos; o inglês também perde para o Lumi). `thor_pt_math` era um controle para explicar um ganho que não houve, e só tem matemática: **descartado**.
+- Mesma lógica para o resto do E11: as 14 rodadas de capacidade, tipo de bloco, posição e escala variam um eixo que `cap_r04_std` e o E10 já mostraram irrelevante. **Canceladas** a pedido (removidas de `scripts/capacity_plan.txt`; as concluídas ficam nos resultados). Código e testes (`--rank-pattern`, `--alpha-pattern`, `--lr-mult`, `--layers`, `--targets`, `--rslora`) continuam no repositório. `resultados_auto.md` só mostra as rodadas feitas.
+- Foco: `gspo_thor` (rodando), RL com as 12.000 questões de gabarito oficial (aguarda a Thor), suíte de teste dos candidatos e variações de uma coisa por vez no RL.
+

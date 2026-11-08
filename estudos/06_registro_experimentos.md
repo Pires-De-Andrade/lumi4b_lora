@@ -13,7 +13,25 @@ Uma linha por rodada: o que foi, de onde partiu, com que dados e configuração,
 | `adalberto_lr5e5` | E5 | idem `adalberto` | lr 5e-5 | 450 | **25,7 min** | 5.494 | 19,0 | 12,4 min | `runs/train/adalberto_lr5e5` |
 | `adalberto_dora` | E6 | idem `adalberto` | **DoRA** r=16 | 450 | **63,9 min** | 2.062 | 15,9 | 12,4 min | `runs/train/adalberto_dora` |
 | `selfdist` | E3 | Lumi com prefill, 14.113 ex. (5,59 M tok) | | 442 | **19,4 min** | 4.381 | 19,0 | 9,5 min | `runs/train/selfdist` |
-| `adalberto_mlp` | E10 | idem `adalberto` | **só MLP** (34 módulos, 8,5 M param.) | 450 | **23,9 min** | 6.087 | 18,3 | em andamento | `runs/train/adalberto_mlp` |
+| `adalberto_mlp` | E10 | idem `adalberto` | **só MLP** (34 módulos, 8,5 M param.) | 450 | **23,9 min** | 6.087 | 18,3 | 12 min | `runs/train/adalberto_mlp` |
+
+### SFT com os dados da Thor (E12) e estudo de capacidade (E11): fila `cap-queue`
+
+Planejadas, na ordem (`scripts/capacity_plan.txt`); tempos entram aqui quando cada rodada terminar. Cada uma ~25 min de treino mais ~12 de avaliação; `thor_*` treinam menos passos (328 contra 450).
+
+| ID | Estudo | Dados e mudança | Estado |
+| --- | --- | --- | --- |
+| `cap_r04_std` | E11 | `adalberto`, r=4, alpha 32 (4,3 M param.) | **feito**: treino 25,6 min, avaliação 12 min; MCQ 62,3% ▼ (igual ao r=16) |
+| `thor_pt` | E12 | Nemotron 30B traduzido para o português (4.927 problemas) | **feito**: treino 17,6 min (328 passos), avaliação 12 min; MCQ 54,3% ▼, trunca 34% (laços) |
+| `thor_en` | E12 | os mesmos 4.927 problemas, raciocínio original em inglês | **feito**: treino 16 min, avaliação 10 min; MCQ 60,3% ▼, GSM8K 83,1% (com thinking) |
+| `thor_pt_short` | E12 | `thor_pt` só com raciocínio de até 600 tokens (3.738 de 4.927 problemas; ciência 1.255 de 2.174), mesmos 5.544 sem thinking | **na fila** (08/11): começa quando o `gspo_thor` terminar (~16:00); ~290 passos, ~15 min de treino e ~12 de avaliação |
+| `thor_pt_math` | E12 | só a matemática, em português | **descartado** (sem ganho a explicar; só matemática) |
+| `nt_both`, `nt_thor`, `nt_qwen` | E13 | SFT só com exemplos sem thinking | **adiados** (dados prontos) |
+| `cap_r64_rs`, `cap_r64_std`, `cap_r04_rs` | E11 | rank e lei de escala | **cancelada** (08/11) |
+| `type_nomlp`, `type_attn`, `type_mamba`, `type_mlp_attn`, `type_mlp_mamba` | E11 | tipo de bloco | **cancelada** (08/11) |
+| `pos_L00_20`, `pos_L21_41` | E11 | posição | **cancelada** (08/11) |
+| `sc_a08`, `sc_a16`, `sc_a64` | E11 | r=16 fixo, alpha 8, 16 e 64 (escala 0,5; 1; 4) | **cancelada** (08/11) |
+| `cap_r32_a16` | E11 | r=32, alpha 16 (escala 0,5) | **cancelada** (08/11) |
 
 ## Fusões sem treino (CPU) e avaliações associadas
 
@@ -37,6 +55,8 @@ Uma linha por rodada: o que foi, de onde partiu, com que dados e configuração,
 
 Avaliações intermediárias de RL (só thinking, ~8 min cada): `grpo1_it3`, `grpo1_u4` (`grpo1` com 4 atualizações), `grpo1_it6`, `grpo2_it2`. A avaliação de 4 ciclos do `gspo1` ficou em `runs/eval/gspo1_c4`. O treino do ciclo 0 do `grpo1` estourou a memória na primeira tentativa e foi refeito com gradient checkpointing (pico de 12,3 GiB); a geração do ciclo 0 foi aproveitada.
 
+RL a partir do SFT da Thor: `gspo_thor` (8 ciclos, receita do `gspo1`, `--init runs/train/thor_pt/adapter`, `--max-noclose 0.85`), sessão `rl-thor`, começa quando a `cap-queue` parar (depois do `thor_en`, ~13:17); pasta `runs/grpo/gspo_thor`. Tempos entram aqui quando terminar.
+
 ## Referências, diagnósticos e medições
 
 | ID | Estudo | O que é | **Tempo** | Pasta |
@@ -55,10 +75,10 @@ Avaliações intermediárias de RL (só thinking, ~8 min cada): `grpo1_it3`, `gr
 
 | Parte | Tempo aproximado |
 | --- | --- |
-| Treino SFT (7 rodadas) | 3,5 h |
+| Treino SFT (8 rodadas) | 3,9 h |
 | RL (6 rodadas e avaliações intermediárias) | 10,8 h |
-| Avaliações (SFT, fusões, referências, diagnóstico) | 3,7 h |
-| **Total** | **≈ 18 h** em ~1,5 dia de calendário |
+| Avaliações (SFT, fusões, referências, diagnóstico) | 3,9 h |
+| **Total** | **≈ 18,6 h** em ~1,5 dia de calendário |
 
 A fila é sequencial (uma GPU de 24 GiB): os ajustes de um experimento esperam o anterior. A Thor gera dados em paralelo, sem custo na 4090.
 

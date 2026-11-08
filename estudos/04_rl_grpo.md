@@ -4,7 +4,11 @@ Pergunta: partindo do adaptador do SFT (`adalberto`), o RL com recompensa verifi
 
 ## Desenho do RL
 
-Cada **ciclo** roda em processos separados (a 4090 não comporta o vLLM e o treino juntos): (1) funde o adaptador no Lumi; (2) gera **8 respostas por questão** para 256 questões (metade matemática, metade múltipla escolha) com o vLLM, até 2.048 tokens, modo thinking, sem começo forçado; (3) calcula a recompensa e a vantagem; (4) treina o adaptador por uma passada pelas respostas com vantagem diferente de zero (64 respostas por passo do otimizador, lr 2e-5, AdamW com o estado guardado entre ciclos). Um ciclo leva uns **13 a 20 min**.
+Cada **ciclo** roda em processos separados:
+ (1) funde o adaptador no Lumi; 
+(2) gera **8 respostas por questão** para 256 questões (metade matemática, metade múltipla escolha) com o vLLM, até 2.048 tokens, modo thinking, sem começo forçado; 
+(3) calcula a recompensa e a vantagem; 
+(4) treina o adaptador por uma passada pelas respostas com vantagem diferente de zero (64 respostas por passo do otimizador, lr 2e-5, AdamW com o estado guardado entre ciclos). Um ciclo leva uns **13 a 20 min**.
 
 | Componente | Definição |
 | --- | --- |
@@ -78,3 +82,25 @@ Incidente de processo: o treino do primeiro ciclo estourou a memória (22 GiB, u
 ## O que o RL ainda não responde
 
 Nenhuma rodada passa o critério do PRD (múltipla escolha com IC acima de 0 contra o Lumi, queda sem thinking de no máximo 1 ponto, 98% de fechamento). O RL melhora a forma e quase fecha a distância com thinking, mas não protege o modo sem thinking. Caminhos em [07_hipoteses_e_proximos_passos.md](07_hipoteses_e_proximos_passos.md): proteger o modo sem thinking no RL (perda de SFT sem thinking misturada), partir de um SFT melhor (traços do Nemotron 30B, adaptador só com MLP), e rodar os finalistas na suíte de teste.
+
+## RL a partir do SFT da Thor (`gspo_thor`, em andamento)
+
+**Decisão (08/11, 13:05):** o foco é **melhorar o modo com thinking**. O melhor candidato até agora (`gspo1`, 8 ciclos a partir do `adalberto`) empata com o Lumi na múltipla escolha (67,5%) e passa na matemática (84,3% ▲). O `thor_pt` ([02](02_sft_dados_e_professor.md), E12) tem o raciocínio tão bom quanto o do Lumi **quando termina**, mas entra em laço de repetição em 33% das respostas de múltipla escolha (fecha `</think>` em 66,0%), e o RL com recompensa zero para truncada é a ferramenta que já mostrou reduzir isso (`gspo1`: fechamento 86,8% → 93,2%).
+
+**Hipótese H33:** o GSPO a partir do `thor_pt` elimina os laços sem perder a qualidade do raciocínio e leva a múltipla escolha com thinking acima do Lumi.
+
+**Desenho:** a receita do `gspo1` (a única estável em 8 ciclos), só trocando o ponto de partida: `scripts/run_grpo.sh gspo_thor --init runs/train/thor_pt/adapter --iters 8 --eval-every 4 --n-prompts 256 --group 8 --lr 2e-5 --max-new 2048 --temperature 0.6 --top-p 0.95 --ratio seq --max-noclose 0.85`. Truncadas valem 0 e **não** são filtradas (a pressão para parar é o ponto). O guarda de "sem `</think>`" sobe de 5% para 85%, porque o `thor_pt` já começa com ~34% (a 4.096 tokens) e a 5% a rodada pararia no primeiro ciclo; 85% só pega degeneração catastrófica. Conferido: as 3.715 questões de múltipla escolha do RL não repetem as 2.174 de ciência do SFT (nenhum id em comum); as de matemática do RL (GSM8K `train`) repetem em parte as 1.719 do `gsm8k_train` do SFT. Avaliação do modelo que entra no ciclo 4 (só thinking, ~8 min) e a completa no fim (12 min). ~2,5 h no total.
+
+**Previsões** (escritas antes dos resultados; vale a regra de leitura do E11, sinal = ±4 pontos):
+
+| Resultado do `gspo_thor` (8 ciclos) | Leitura |
+| --- | --- |
+| Fecha ≥ 90% (múlt. escolha) e múlt. escolha com thinking ≥ 69,6% (Lumi) | H33 apoiada: os laços eram o único problema do `thor_pt`; passa a ser o melhor candidato |
+| Fecha ≥ 90% mas múlt. escolha < 66% | Os laços saem, mas o RL não recupera a nota: o SFT Nemotron não é melhor que o do Qwen para esta métrica |
+| Fecha < 80% | Os laços resistem ao RL a partir deste SFT: o problema é do SFT (dados ou estilo) |
+| Guarda de `</think>` dispara | O RL degenera a partir de um SFT que já entra em laço; trocar o ponto de partida |
+
+**Resultado parcial (08/11, 14:07, modelo que entra no ciclo 4, só thinking, validação limpa):** múltipla escolha **65,7%** (−3,9 contra o Lumi, sem ▼), fecha 82,9%, trunca 17,1% (o `thor_pt` tinha 54,3% e trunca 34%), mediana de 520 tokens; GSM8K 83,7% (+2,1). Durante o treino, a truncação nas respostas amostradas (T 0,6, 2.048 tokens) caiu 25% → 16% → 8% → 11% (ciclos 0 a 3) e a recompensa de múltipla escolha subiu 0,62 → 0,67 → 0,70 → 0,72; a entropia subiu de 0,64 para 0,74 e desacelera. Contra o `gspo1` no mesmo ponto (`gspo1_c4`: 67,8%, trunca 10,6%) está 2 pontos abaixo (dentro do ruído) e com mais truncação. Falta metade da rodada: a leitura final é a do ciclo 8.
+
+**O que ainda faltará mesmo se passar:** o modo sem thinking (adiado por decisão de 08/11), a suíte de teste dos finalistas, e uma segunda semente.
+

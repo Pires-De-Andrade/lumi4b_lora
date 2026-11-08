@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import math
 import random
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -124,11 +125,34 @@ class TrainConfig:
     save_every: int = 200
     log_every: int = 10
     max_steps: int = 0  # >0: para depois de N passos (depuração)
-    targets: str = "all"  # all = os 71 módulos do PRD | mlp = só up_proj e down_proj (17 camadas)
+    targets: str = "all"  # all = os 71 módulos do PRD | lista de tipos: mamba, mlp, attn (ex.: "mlp" ou "mamba,attn")
+    # Estudo de capacidade (padrões = PRD: nada muda nas rodadas antigas)
+    alpha: float | None = None  # None = 2 * r (escala alpha/r = 2)
+    rslora: bool = False  # escala alpha/raiz(r)
+    layers: str = ""  # faixa fechada de camadas, "0-20" (vazio = todas)
+    rank_pattern: str = ""  # JSON {regex do final do nome do módulo: rank}, ex.: '{"in_proj": 4, "up_proj|down_proj": 32}'
+    alpha_pattern: str = ""  # JSON idem para alpha (vazio = mantém a escala alpha/r de cada módulo)
+    lr_mult: str = ""  # JSON {regex do nome do parâmetro: multiplicador do lr}; vale o primeiro que casar, senão 1
 
 
 def default_budget(arm: str) -> int:
     return 1024 if arm == "dora" else 2048
+
+
+def lr_multiplier(name: str, lr_mult: dict[str, float]) -> float:
+    """Multiplicador do lr de um parâmetro: o do primeiro regex de `lr_mult` que casa (re.search) com o nome, senão 1."""
+    for rx, m in lr_mult.items():
+        if re.search(rx, name):
+            return float(m)
+    return 1.0
+
+
+def param_groups(params: dict, lr: float, lr_mult: dict[str, float]) -> list[dict]:
+    """Um grupo do otimizador por multiplicador distinto (ordem de primeira aparição, estável entre execuções)."""
+    by: dict[float, list] = {}
+    for n, p in params.items():
+        by.setdefault(lr_multiplier(n, lr_mult), []).append(p)
+    return [{"params": ps, "lr": lr * m, "mult": m} for m, ps in by.items()]
 
 
 def _save_ckpt(path: Path, params: dict, opt, step: int) -> None:
@@ -180,10 +204,13 @@ def train(cfg: TrainConfig) -> dict:
     torch.manual_seed(cfg.seed)
     model = load_model("native")
     model.config.use_cache = False  # sem gradient checkpointing (PRD): memória medida na fase 0
-    pm = add_adapter(model, r=cfg.r, use_dora=(cfg.arm == "dora"), targets=cfg.targets)
+    pm = add_adapter(model, r=cfg.r, use_dora=(cfg.arm == "dora"), targets=cfg.targets, alpha=cfg.alpha, layers=cfg.layers,
+                     rslora=cfg.rslora, rank_pattern=json.loads(cfg.rank_pattern) if cfg.rank_pattern else None,
+                     alpha_pattern=json.loads(cfg.alpha_pattern) if cfg.alpha_pattern else None)
     pm.train()
     params = {n: p for n, p in pm.named_parameters() if p.requires_grad}
-    opt = torch.optim.AdamW(list(params.values()), lr=cfg.lr, betas=(0.9, 0.999), weight_decay=0.0)
+    opt = torch.optim.AdamW(param_groups(params, cfg.lr, json.loads(cfg.lr_mult) if cfg.lr_mult else {}),
+                            lr=cfg.lr, betas=(0.9, 0.999), weight_decay=0.0)
     step, ckpt = 0, out / "ckpt" / "last.pt"
     if ckpt.exists():
         state = torch.load(ckpt, map_location="cpu")
@@ -203,7 +230,7 @@ def train(cfg: TrainConfig) -> dict:
                 continue
             lr = lr_at(gstep, total, cfg.lr, cfg.warmup)
             for g in opt.param_groups:
-                g["lr"] = lr
+                g["lr"] = lr * g.get("mult", 1.0)
             N = n_targets(rows, idxs)
             if N == 0:
                 continue

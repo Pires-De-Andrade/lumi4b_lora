@@ -22,11 +22,21 @@ RUNS = [
     ("SFT: dados e professor", [("viab", "viab: 10 mil traços do GigaVerbo, 1 época"), ("adalberto", "adalberto: traços do Qwen3-30B (GSM8K), lr 1e-4"),
                                 ("adalberto_lr5e5", "adalberto com lr 5e-5"), ("adalberto_L2048", "adalberto com limite de 2.048 tokens"),
                                 ("selfdist", "selfdist: traços do próprio Lumi com prefill em português"), ("adalberto_dora", "adalberto com DoRA")]),
+    ("SFT: dados do Nemotron 30B da Thor, traduzidos (entrega parcial: 4.927 problemas com raciocínio + 5.544 linhas sem raciocínio do GigaVerbo)",
+     [("adalberto", "**adalberto: traços do Qwen3-30B (referência)**"), ("thor_pt", "thor_pt: raciocínio do Nemotron 30B traduzido para o português"),
+      ("thor_en", "thor_en: os mesmos problemas, raciocínio original em inglês"),
+      ("thor_pt_short", "thor_pt_short: o thor_pt só com raciocínio de até 600 tokens (3.738 dos 4.927 problemas)"),
+      ("thor_pt_math", "thor_pt_math: só a matemática do mesmo professor (sem múltipla escolha), em português")]),
     ("SFT: tamanho do efeito do adaptador", [("adalberto_s050", "adalberto, efeito do adaptador x0,5"), ("adalberto_s075", "adalberto, efeito do adaptador x0,75")]),
     ("SFT: só os MLPs", [("adalberto_mlp", "adalberto_mlp: LoRA só em up_proj e down_proj (34 módulos), treinado do zero")]),
-    ("RL (a partir do adalberto)", [("grpo1", "grpo1: 8 ciclos, T 0,8"), ("grpo2", "grpo2: 4 ciclos, T 0,6, top-p 0,95, truncadas fora da perda"),
+    ("Capacidade e tipo de bloco (treinado do zero, 71 módulos salvo indicação; E11 encerrado em 1 de 15 rodadas)",
+     [("adalberto", "**r=16, alpha 32, 71 módulos (base do `adalberto`)**"), ("cap_r04_std", "r=4, alpha 32 (escala 8), 71 módulos"),
+      ("adalberto_mlp", "r=16, só MLP (34 módulos)")]),
+    ("RL (a partir do adalberto; `gspo_thor` a partir do `thor_pt`)", [("grpo1", "grpo1: 8 ciclos, T 0,8"), ("grpo2", "grpo2: 4 ciclos, T 0,6, top-p 0,95, truncadas fora da perda"),
                                     ("grpo3", "grpo3: Dr. GRPO + 70% múltipla escolha"), ("grpo4", "grpo4: KL 0,04"),
-                                    ("raft1", "raft1: só respostas certas"), ("gspo1_c4", "gspo1: razão por sequência, 4 ciclos"), ("gspo1", "gspo1: 8 ciclos")]),
+                                    ("raft1", "raft1: só respostas certas"), ("gspo1_c4", "gspo1: razão por sequência, 4 ciclos"), ("gspo1", "gspo1: 8 ciclos"),
+                                    ("gspo_thor_it4", "gspo_thor: 4 ciclos a partir do `thor_pt` (só thinking)"),
+                                    ("gspo_thor", "gspo_thor: 8 ciclos a partir do `thor_pt` (Nemotron 30B)")]),
 ]
 LAYERS = [("adalberto", "adaptador completo (71 módulos)"), ("adalberto_L00_20", "só camadas 0 a 20"), ("adalberto_L21_41", "só camadas 21 a 41"),
           ("adalberto_noMLP", "sem MLP (Mamba e atenção)"), ("adalberto_MLPonly", "só MLP (do adaptador completo, sem retreinar)")]
@@ -38,6 +48,16 @@ def load(name: str, task: str, mode: str):
         return None
     d = {r["id"]: r for r in json.loads(p.read_text())}
     return {k: v for k, v in d.items() if k in CLEAN} if task == "gsm8k_val" else d
+
+
+def params_note(name: str) -> str:
+    """' · N M parâmetros treináveis', lido do registro de treino (vazio se a rodada não treinou nada)."""
+    p = Path("runs/train") / name / "train_log.jsonl"
+    try:
+        first = json.loads(p.read_text().splitlines()[0])
+        return " · " + f"{first['trainable_params'] / 1e6:.1f}".replace(".", ",") + " M param."
+    except Exception:
+        return ""
 
 
 def pct(x: float) -> str:
@@ -88,6 +108,7 @@ def main() -> None:
         out += [f"## {grupo}\n", "| Rodada | GSM8K com thinking | GSM8K sem | Múlt. escolha com thinking | Múlt. escolha sem | Forma da múlt. escolha: fecha / PT / trunca / mediana tok | Avaliação (min) |",
                 "| --- | --- | --- | --- | --- | --- | --- |"]
         for name, desc in runs:
+            desc = desc + params_note(name)
             if not (ROOT / name / "summary.json").exists():
                 out.append(f"| {desc} (`{name}`) | – | – | – | – | – | – |")
                 continue

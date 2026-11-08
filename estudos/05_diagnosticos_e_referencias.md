@@ -65,7 +65,7 @@ Faltam na suíte de teste: MMLU-ProX PT, ENEM, BLUEX, OAB (e MMLU PT e IFEval PT
 | Qwen3-30B (`adalberto`) | 177 | "Certo, vamos…" | 1,9 |
 | DeepSeek-R1 (ciência) | 610 | "Okay, so…" | 7,6 |
 
-O Lumi pensa curto e em forma de plano. O teste que falta é treinar com traços de um professor da **mesma família** (Nemotron 30B, pacotes 2 e 3 da Thor) e ver se a múltipla escolha deixa de cair.
+O Lumi pensa curto e em forma de plano. O teste que falta é treinar com traços de um professor da **mesma família** (Nemotron 30B, pacotes 2 e 3 da Thor) e ver se a múltipla escolha deixa de cair. **Atualização (08/11):** os traços do Nemotron 30B chegaram (parciais) e confirmam a diferença de estilo numa dimensão mensurável: 97% (matemática) e 82% (múltipla escolha) dos raciocínios repetem a instrução de formato do enunciado, contra 84% e 33% no Lumi e 0% e 1% no Qwen3-30B ([02](02_sft_dados_e_professor.md), E12). O treino que testa se isso importa está na fila.
 
 ## D6. Fontes de dados avaliadas
 
@@ -86,6 +86,28 @@ O Lumi pensa curto e em forma de plano. O teste que falta é treinar com traços
 | --- | --- | --- |
 | 1 (`handoff/thor/`) | Qwen3-30B-A3B-Thinking com o começo do raciocínio forçado em português; 50.908 problemas (5.612 do GSM8K-PT `train`, 45.296 do GigaVerbo) | Gerando; nada devolvido |
 | 2 (`handoff/thor2/`) | Nemotron 3 Nano 30B-A3B, raciocínio em inglês; 21.612 prompts (9.612 de matemática, 12.000 de múltipla escolha de ciência) | Gerando; nada devolvido |
-| 3 (`handoff/thor3/`) | O Nemotron 30B **traduz** para o português os exemplos dos pacotes 2 e 3 (enunciado, alternativas, raciocínio e resposta), com conferências por pedaço (tamanho, números, "respondeu em vez de traduzir"); gera traços para 12.000 questões novas com gabarito (7.000 do WebInstruct-verified, 5.000 do MedMCQA; sem 8-grama com MMLU e MMLU-ProX, 2.932 removidas, e 20.649 enunciados repetidos removidos); guarda o raciocínio original em inglês | Pronto, 27 testes, ainda não enviado |
+| 3 (`handoff/thor3/`) **parcial recebido** (08/11, 11:47): 5.278 registros com raciocínio traduzido (1.746 `gsm8k_train`, 1.059 `gv_math`, 2.473 `mot_science`); faltam os 30% sem raciocínio e as 12.000 questões novas | O Nemotron 30B **traduz** para o português os exemplos dos pacotes 2 e 3 (enunciado, alternativas, raciocínio e resposta), com conferências por pedaço (tamanho, números, "respondeu em vez de traduzir"); gera traços para 12.000 questões novas com gabarito (7.000 do WebInstruct-verified, 5.000 do MedMCQA; sem 8-grama com MMLU e MMLU-ProX, 2.932 removidas, e 20.649 enunciados repetidos removidos); guarda o raciocínio original em inglês | Gerando; nada devolvido |
+
+**Pedido de 08/11 (foco no thinking):** traduzir **só as questões** das 12.000 (arquivo novo `translate_questions.py`, sem raciocínio), para ter prompts de RL com gabarito oficial e todas as dificuldades, não só as que o professor acertou; depois terminar o pacote 2 (entregando também os 30% sem raciocínio) e gerar os traços do pacote 3 em blocos de 3.000 ([prompt](../handoff/thor3/PROMPT_THOR_08NOV.md)).
 
 A tradução na Thor substitui a tradução com o Lumi na 4090, que falhou em escala ([02](02_sft_dados_e_professor.md), E8). Cada exemplo traduzido guarda o par em inglês, o que permite o experimento **"raciocínio em inglês contra português"** com os mesmos problemas.
+
+## D8. Onde o modo sem thinking perde: formato, não conteúdo (08/11)
+
+**Pergunta:** a múltipla escolha sem thinking cai em quase todo SFT (58,2% no `adalberto` contra 63,9% do Lumi). O modelo esqueceu conteúdo ou errou o formato?
+
+**Desenho:** nas saídas de validação sem thinking (385 questões), comparar a nota **estrita** (exige a linha final `Resposta: X`) com a **flexível** (aceita a letra achada no texto) e contar quantas respostas têm a linha final. Só leitura dos arquivos de avaliação.
+
+| Múlt. escolha sem thinking | Estrita | Flexível | Tem a linha `Resposta: X` | Mediana de tokens |
+| --- | --- | --- | --- | --- |
+| Lumi | 63,9 | 63,4 | 97,7% | 166 |
+| `adalberto` | 58,2 | 63,9 | 87,8% | 404 |
+| `adalberto_mlp` | 54,3 | 62,9 | 83,9% | 359 |
+| `cap_r04_std` | 60,0 | 62,9 | 94,3% | 397 |
+| `thor_pt` | 62,9 | 63,9 | 96,1% | 123 |
+| Nemotron 4B | 58,7 | 58,7 | 99,7% | 68 |
+
+**Achado:** o acerto de **conteúdo** (flexível) é 63 a 64% em todas as rodadas, igual ao do Lumi. O que cai é a linha final: os modelos treinados só em matemática (`adalberto` e derivados) respondem mais longo (400 tokens contra 166) e deixam de escrever `Resposta: X` em 6 a 16% dos casos. O `thor_pt`, treinado com respostas de múltipla escolha no formato da prova, mantém a linha (96,1%) e a nota estrita (62,9%). **Consequência:** a perda "sem thinking" da múltipla escolha é em boa parte de **formato** e se corrige com dados no formato certo. Já o **teto de conteúdo** (~64%) é do conhecimento do modelo: subir além disso sem thinking exige mais que formato (ver E13 em [02](02_sft_dados_e_professor.md)).
+
+No GSM8K sem thinking, ao contrário, o estilo importa: respostas passo a passo do Qwen3-30B (mediana de 344 tokens) dão +2 a +4 pontos sobre o Lumi (143 tokens); as curtas do Nemotron (145 tokens, `thor_pt`) ficam abaixo (79,0 contra 81,4, na validação completa de 1.000).
+
