@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Triagem de 08/11 (pedido do usuário, ~19:20): RL com gabarito oficial e limite de 4.096 a partir do `thor_pt` (SFT do raciocínio do Nemotron 30B
+# Triagem de 08/11 (~19:20): RL com gabarito oficial e limite de 4.096 a partir do `thor_pt` (SFT do raciocínio do Nemotron 30B
 # traduzido), 4 ciclos. Mesma receita e mesmas questões do `gspo_gold4k`, só muda o ponto de partida (--init), então o ciclo 4 compara direto com o
 # `gspo_gold4k` no ciclo 4 (e com o `gspo_thor` antigo, de 2.048 e questões antigas). A avaliação do final (modelo depois de 4 atualizações) equivale à
 # "avaliação do modelo que entra na iteração 4". Motivo extra: o dataset do `adalberto` não tem licença declarada; se este ponto de partida empatar,

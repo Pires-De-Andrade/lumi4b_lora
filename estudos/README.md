@@ -20,7 +20,14 @@ Melhor candidato até agora: **`gspo1`** (SFT `adalberto` + 8 ciclos de RL com r
 | Fecha `</think>` (múlt. escolha) | 86,2% | 93,2% | ≥ 98%: **não cumprido** |
 | Traço em português | 0% | 96,1% | ≥ 90%: cumprido |
 
-Nenhum candidato passou o critério, e **nenhum candidato foi rodado ainda na suíte de teste** (só o Lumi e o Nemotron 4B têm GSM8K de teste). Todos os números abaixo são da validação.
+Nenhum candidato passou o critério, e **nenhum candidato foi rodado ainda na suíte de teste** (do Lumi há o GSM8K e o MMLU-ProX PT com thinking; do Nemotron 4B, o GSM8K). Todos os números abaixo são da validação.
+
+**O que mudou na tarde e na noite de 08/11** (decisões e o que estudar se der errado: [08](08_registro_de_decisoes.md)):
+
+- **O adaptador só liga com thinking.** Sem thinking roda o Lumi original; a queda sem thinking da tabela acima deixa de pesar no uso. O BF16 fundido sozinho degrada o modo sem thinking, e o relatório final precisa dizer isso.
+- **RL com limite de 4.096 tokens e questões de gabarito oficial** (`gspo_gold4k`): no ciclo 4, 63,1% em múltipla escolha com thinking e fecha o `</think>` em 83,9%, contra 67,8% e 90,9% do `gspo1` no mesmo ciclo. A regra combinada antes parou a rodada. Duas coisas mudaram juntas (limite e questões); o `gspo_gold` com 2.048 e as mesmas questões roda para separá-las (avaliação do ciclo 4 por volta de 21:00; a leitura do resultado está fixada em [08](08_registro_de_decisoes.md)).
+- **Qualidade do raciocínio, nos itens em que todos os modelos fecham o `</think>`:** o SFT só de matemática (`adalberto`) fica ~5 pontos abaixo do Lumi (82,5% contra 87,8%, 189 itens); o `thor_pt`, com ciência em português, iguala o Lumi (87,3%). Condicionar no fechamento escolhe itens mais fáceis, então isso é indício, não prova ([discovery.md](../discovery.md) §20.39).
+- **Próximo dado a chegar:** traços de múltipla escolha em português gerados pelo Qwen na Thor (pacote 4, [handoff/README.md](../handoff/README.md)), para um SFT misto.
 
 ## Achados principais
 
@@ -29,6 +36,8 @@ Nenhum candidato passou o critério, e **nenhum candidato foi rodado ainda na su
 3. **O idioma da pergunta não é o problema.** O Lumi original acerta o mesmo em português e em inglês (diferença −1,3 a +0,4, sem significância) ([05](05_diagnosticos_e_referencias.md)).
 4. **O lugar do adaptador não explica o dano.** A triagem pós-treino sugeria que só o Mamba e a atenção causavam a perda (o "só MLP" ficava em 69,6%), mas **treinado do zero** o adaptador só com MLP (34 módulos, metade dos parâmetros) aprende português (98,5%), ganha na matemática (83,4%) e perde igual na múltipla escolha (62,3% ▼; sem thinking 54,3% ▼). A triagem enganou. Cinco mudanças de adaptador ou de otimização deram 62 a 64%; a causa provável são os dados ([03](03_ablacao_camadas_e_mlp.md)).
 5. **O RL recupera quase tudo na múltipla escolha com thinking** (62,3% → 66 a 68%, empate com o Lumi), mas só o GSPO ficou estável; os outros estouraram a entropia ou perderam forma. O RL treina só o modo com thinking e **não protege o sem thinking**: em duas rodadas ele caiu a 43,1% ([04](04_rl_grpo.md)).
+
+6. **Só matemática no SFT prejudica o raciocínio de múltipla escolha; ciência em português não** (indício, §20.39 do `discovery.md`). O que impede o `thor_pt` de ganhar é o fechamento do `</think>` (cauda longa e laços), não a qualidade do raciocínio quando fecha.
 
 ## Mapa dos documentos
 
@@ -43,6 +52,8 @@ Nenhum candidato passou o critério, e **nenhum candidato foi rodado ainda na su
 | [07_hipoteses_e_proximos_passos.md](07_hipoteses_e_proximos_passos.md) | Registro de hipóteses com veredito, ameaças à validade, próximos experimentos |
 | [08_registro_de_decisoes.md](08_registro_de_decisoes.md) | Decisões de rumo de 08/11 (RL com 4.096, adaptador só com thinking, regras do ciclo 4), com o que estudar se der errado |
 | [resultados_auto.md](resultados_auto.md) | Tabela de todas as rodadas, **gerada** dos arquivos de avaliação |
+
+Fora desta pasta: [../PRD.md](../PRD.md) (requisitos e critério), [../discovery.md](../discovery.md) (diário de engenharia, com índice no topo), [../scripts/README.md](../scripts/README.md) (o que cada script faz), [../handoff/README.md](../handoff/README.md) (pacotes da Thor) e [../README.md](../README.md) (resumo em inglês).
 
 ## Como reproduzir os números
 

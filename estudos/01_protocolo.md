@@ -14,7 +14,7 @@ Regra de dados: não treinamos com datasets que o cartão do Lumi lista no SFT d
 
 ## 2. Máquinas e software
 
-- **RTX 4090** (24 GiB, compartilhada, sem sudo nem Docker): todo treino e toda avaliação. **Jetson AGX Thor** (122 GiB de memória unificada, aarch64): só gera dados.
+- **RTX 4090** (24 GiB, compartilhada): todo treino e toda avaliação. **Jetson AGX Thor** (122 GiB de memória unificada, aarch64): só gera dados.
 - Três ambientes: `.venv` (treino, Transformers com a implementação **nativa** do NemotronH), `.venv-vllm` (avaliação e geração, vLLM 0.33.0 com `VLLM_USE_FLASHINFER_SAMPLER=0`) e `.micromamba` (nvcc). `env.sh` mantém todos os caches dentro do projeto.
 - Tarefas longas rodam desacopladas (`scripts/detach.sh [--gpu] <nome> <comando>`, tmux), com registro em `runs/jobs/<nome>.log` e código de saída em `<nome>.exit`.
 
@@ -61,7 +61,6 @@ Prompt de treino = prompt de avaliação (instrução `#### N` ou `Resposta: <le
 ## 7. Regras de conduta
 
 - **Nunca** mudar métricas, metas ou limiares para um candidato passar (PRD, regra 4).
-- Sem publicação no Hugging Face sem pedido explícito.
 - Dados de licença desconhecida (o dataset do adalberto) servem só a experimentos.
 
 ## 8. Limites que valem para todo o conjunto

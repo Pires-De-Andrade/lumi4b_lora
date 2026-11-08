@@ -1,6 +1,6 @@
 # Plano da Thor (2): gerar traços de raciocínio com o Nemotron 3 Nano 30B-A3B
 
-Este arquivo é para o Claude Code da Jetson Thor. Leia tudo e execute os passos 0 a 5 em ordem. Pare e reporte ao usuário em cada **PARE E REPORTE**.
+Roteiro de execução na Jetson Thor. Leia tudo e execute os passos 0 a 5 em ordem. Pare e reporte em cada **PARE E REPORTE**.
 
 ## Contexto
 

@@ -57,7 +57,15 @@ Avaliações intermediárias de RL (só thinking, ~8 min cada): `grpo1_it3`, `gr
 
 RL a partir do SFT da Thor: `gspo_thor` (8 ciclos, receita do `gspo1`, `--init runs/train/thor_pt/adapter`, `--max-noclose 0.85`), sessão `rl-thor`, 13:14 a 14:50; pasta `runs/grpo/gspo_thor`. Geração 47 min (9,1 M tokens), treino 29 min, avaliação final 7 min (+6 min da avaliação do ciclo 4, em `runs/eval/gspo_thor_it4`, fora do total): **1,4 h**. Resultado em [04](04_rl_grpo.md): múltipla escolha com thinking 67,0%, empata com o `gspo1`.
 
-RL com gabarito oficial: `gspo_gold` (8 ciclos, receita do `gspo1`: `--init runs/train/adalberto/adapter`, T 0,6, top-p 0,95, `--ratio seq`, `--max-noclose 0.05`, avaliação do ciclo 4; `--prompts data/grpo_prompts_gold.jsonl`), **na fila** (08/11 15:35) em `gold-chain`: começa depois da suíte de teste do `gspo1` (~17:55); pasta `runs/grpo/gspo_gold`. Tempos entram aqui quando terminar.
+RL com gabarito oficial (`--prompts data/grpo_prompts_gold.jsonl`, receita do `gspo1`: `--init runs/train/adalberto/adapter`, T 0,6, top-p 0,95, `--ratio seq`, `--max-noclose 0.05`; ciclos de ~18 min com 256 questões × 8 respostas). Mesmas 256 questões por ciclo nas três rodadas (a seleção é determinística):
+
+| ID | Limite de geração | Ciclos | Estado e resultado (validação limpa, com thinking) | Pasta |
+| --- | --- | --- | --- | --- |
+| `gspo_gold` | 2.048 | 4 (retomada) | ciclos 0 e 1 feitos em 17:20–17:59 (a rodada foi interrompida no ciclo 2 às 18:02 para testar 4.096); **retomada às 20:02** (sessão `gold2048`, `scripts/run_gold2048_resume.sh`): ciclos 2 e 3 e avaliação do ciclo 4 por volta de 21:00. Lê-se com a regra de [08](08_registro_de_decisoes.md) | `runs/grpo/gspo_gold` |
+| `gspo_gold4k` | 4.096 | 4 de 8 (parou pela regra de [08](08_registro_de_decisoes.md) às 19:41) | ciclo 4 avaliado em `runs/eval/gspo_gold4k_it4`: múlt. escolha **63,1%**, GSM8K 84,6%, fecha 83,9%, trunca 16,4% (mediana 1.250 tokens) | `runs/grpo/gspo_gold4k` |
+| `gspo_gold4k_thor` | 4.096, a partir do `thor_pt` | – | **cancelada** antes de rodar (19:45): repetia a configuração suspeita | – |
+
+Benchmark de velocidade da geração (08/11, 5 configurações do vLLM, `runs/bench_rollout/`): ganho máximo +9,3% contra ruído de 5,4%; o critério combinado (≥15%) não foi atingido e nada foi adotado ([discovery.md](../discovery.md) §20.35 e §20.41).
 
 ## Referências, diagnósticos e medições
 
@@ -67,7 +75,7 @@ RL com gabarito oficial: `gspo_gold` (8 ciclos, receita do `gspo1`: `--init runs
 | `nemotron4b` | D1 | Nemotron 3 Nano 4B, validação | 5,3 min | `runs/eval/nemotron4b` |
 | `base_ptprefill`, `base_ptinstr` | E0 | Lumi com prefill e com instrução em português | 6,3 e 6,0 min | `runs/eval/base_pt*` |
 | `mmlu_prox_diag_pt` e `_en` | D2 | Lumi original, 1.200 questões nos dois idiomas, com e sem thinking | 32 min | `runs/eval/base` |
-| Suíte de teste: `base`, `gspo1` (o `gspo_thor` ficou de fora por pedido do usuário) | PRD | GSM8K-PT, MMLU-ProX PT, ENEM, BLUEX e OAB (17.417 itens), nos dois modos, `eval_vllm.py --tasks suite` | **na fila** (08/11, ~1,3 h por modelo; o `base` já tem o GSM8K-PT) | `runs/eval/{base,gspo1}` |
+| Suíte de teste do Lumi (`base`; o `gspo1` e o `gspo_thor` ficaram de fora) | PRD | GSM8K-PT, MMLU-ProX PT, ENEM, BLUEX e OAB (17.417 itens), nos dois modos, `eval_vllm.py --tasks suite` | **parcial** (08/11): GSM8K-PT de teste nos dois modos (88,73% e 85,33%) e MMLU-ProX PT com thinking (53,57%); parada de propósito (`stop_eval_after_task.sh`). Faltam MMLU-ProX sem thinking, ENEM, BLUEX e OAB do Lumi, e a suíte de qualquer candidato | `runs/eval/base` |
 | Entropia dos ciclos do `grpo1` | RL | 8 medições com 512 respostas cada | ~7 min | `runs/grpo/grpo1/entropy` |
 | Geração da autodestilação | E3 | 17.000 problemas, vLLM | ~60 min | `data/selfdist` |
 | Piloto de tradução | E8 | 200 registros, Lumi como tradutor | 88 s | `data/mot_pilot` |

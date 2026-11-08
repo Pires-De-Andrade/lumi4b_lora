@@ -123,7 +123,7 @@ We tested several sources of Portuguese reasoning traces:
 | GigaVerbo-v2, `reasoning` subset | Short synthetic traces in Portuguese | First feasibility test |
 | `adalberto-temp/gsm8k-sft-thinking-pt` | Qwen3-30B-A3B-Thinking traces for GSM8K problems, in Portuguese | Main SFT data (**no declared license: used for experiments only**) |
 | Self-distillation | Lumi itself, forced to reason in Portuguese, filtered by the answer key | Test of a "weak teacher" |
-| Jetson Thor packages | Traces from Qwen3-30B and Nemotron 3 Nano 30B, translated into Portuguese | Being generated |
+| Jetson Thor packages | Traces from Nemotron 3 Nano 30B translated into Portuguese (and in English, for control), plus 12,000 translated questions for RL; a Qwen3-30B multiple-choice package is next | SFT runs `thor_pt`, `thor_en`, `thor_pt_short`; RL prompts |
 
 Every example goes through filters:
 - valid format, with exactly one `</think>`;
@@ -203,11 +203,7 @@ Full table, generated automatically: [estudos/resultados_auto.md](estudos/result
 3. **The teacher matters.** Traces from a stronger model (Qwen3-30B) work much better than traces from Lumi itself.
 4. **LoRA vs. DoRA: a tie.** DoRA stayed within 1 point of LoRA on every measure and took 2.5 times longer to train. A lower learning rate, a higher token limit and scaling down the adapter did not fix the loss either.
 5. **The language of the question is not the problem.** The original Lumi scores the same on questions in Portuguese and in English (1,200 questions, no significant difference).
-6. **The architecture seems to matter.** We switched on only parts of an already trained adapter:
-   - **the MLPs alone** keep multiple choice at Lumi's level (69.6%), but the reasoning goes back to English;
-   - **Mamba and attention alone** carry the loss, even when the trace comes out in English.
-
-   This suggests the problem is not Portuguese itself. It is only a screening; the test that trains the MLPs alone is in progress.
+6. **The adapter's location does not explain the loss.** Switching on only parts of an already trained adapter suggested that Mamba and attention carried the damage (the MLPs alone kept multiple choice at 69.6%). But **training** an adapter on the MLPs alone from scratch learned Portuguese (98.5%), improved math (83.4%) and lost the same on multiple choice (62.3%). The post-training screening was misleading; the likely cause is the training data.
 7. **RL helps, but at a cost.** GRPO and its variants raised multiple choice with reasoning from 62.3% to 66–68%, a statistical tie with Lumi.
    - Only GSPO stayed stable; the other variants had entropy blow-ups or lost the output format.
    - Because RL trains only the reasoning mode, **the no-reasoning mode got worse**, dropping to 43.1% in two runs.
@@ -223,7 +219,7 @@ Parameter-efficient fine-tuning turned out to be **cheap and powerful for changi
 What we learned about the cause of the multiple-choice loss:
 - **Hyperparameters:** they do not seem to be the cause. Learning rate, token limit, DoRA and adapter scale were tested and ruled out.
 - **Language of the question:** not the cause either; the Portuguese vs. English diagnostic was a tie.
-- **Teacher and architecture:** these seem to weigh more. The teacher matters, and the layer screening points at the Mamba and attention blocks.
+- **Teacher and data:** these seem to weigh more. The teacher matters, and the architecture does not explain it (an adapter on the MLPs alone loses the same). Where the answers are correct and the trace closes, math-only traces cost about 5 points of reasoning quality on multiple choice, while multiple-choice science traces do not (evidence, not proof).
 
 Our main open hypothesis is the **teacher's style**. Lumi thinks in a short, plan-like way (median of 96 words), while Qwen3-30B writes longer, more "conversational" reasoning (177 words). Training Lumi to imitate a different way of thinking may cost it capability. We will test this with traces from a teacher in the **same family** (Nemotron 30B), translated into Portuguese.
 
@@ -237,21 +233,21 @@ It is also worth saying that well-measured negative results are results. Knowing
 - **Small multiple-choice validation set** (385 items), with a confidence interval of ±4–5 points.
 - **No candidate has been run on the final test suite.** Every number above comes from validation.
 - **Trace language is measured by a heuristic** (counting Portuguese function words), not by a language detector. Human review covered only a few samples.
-- **Weak answer key in multiple-choice RL:** it is the majority letter from another model's answers (DeepSeek-R1), not an official key.
+- **Answer keys in multiple-choice RL:** the first RL runs used the majority letter from another model's answers (DeepSeek-R1); the later ones use the dataset's own key (MedMCQA comes from exams; WebInstruct-verified labels were verified by a model, not by an exam board).
 - **Several changes per RL run**, so the cause of each difference is not isolated.
-- **The layer screening was done after training.** Zeroing out parts of an adapter trained as a whole is not the same as training only those parts.
+- **The layer screening was done after training**, and it misled us: zeroing out parts of an adapter trained as a whole is not the same as training only those parts (the MLP-only retraining refuted it).
 - **Licenses:** the `adalberto` dataset declares no license, and neither does Lumi's model card. Nothing trained on that data will be published.
 
 ---
 
 ## 9. Next steps
 
-1. Finish evaluating the adapter trained **on the MLPs only**.
-2. Run the finalists on the **test suite** (GSM8K-PT, MMLU-ProX PT, ENEM, BLUEX, OAB).
-3. Train on traces from **Nemotron 30B** (the same family as Lumi), in Portuguese and in English on the same problems, to separate the effect of the language from the effect of the teacher.
-4. **Protect the no-reasoning mode during RL** by mixing in an SFT loss for that mode.
-5. Repeat the best experiments with **other seeds**.
-6. If time allows: a 2×2 layer grid (block type × position in the network) and a stronger KL penalty in RL.
+1. Separate the effect of the **generation limit** (2,048 vs. 4,096 tokens) from the effect of the **question set** in RL: a run with the official-key questions at 2,048 tokens is finishing now.
+2. Train a **mixed SFT** with multiple-choice traces in Portuguese from a teacher that closes its reasoning cleanly (Qwen3-30B-A3B-Thinking, generated on the Jetson Thor), together with the Nemotron 30B data we already have, then screen it with a short RL run.
+3. Run the best candidate **with reasoning on** on the test suite (GSM8K-PT, MMLU-ProX PT, ENEM, BLUEX, OAB), as a check only, and finish the original Lumi's test suite for comparison.
+4. Repeat the best experiments with **other seeds**.
+5. Adjust the GSPO recipe (sequences per minibatch, sampling temperature in the trainer, uniform sequence mean).
+6. The adapter will only be used with reasoning on; with reasoning off the original Lumi runs. We will document that the merged model alone degrades the no-reasoning mode.
 
 ---
 
@@ -261,7 +257,8 @@ The study documents in `estudos/` and the PRD are written in Portuguese.
 
 ```text
 PRD.md                 # requirements document: goal, targets, win criterion, phases
-discovery.md           # engineering log and day-to-day decisions
+discovery.md           # engineering log and day-to-day decisions (index at the top)
+comparacao.md          # comparison with reference models (local file, not versioned)
 estudos/               # the project organized as ablation studies (start with its README)
   01_protocolo.md      # models, machines, training, evaluation, statistics
   02_sft_dados_e_professor.md     # SFT: data and teacher
@@ -270,13 +267,17 @@ estudos/               # the project organized as ablation studies (start with i
   05_diagnosticos_e_referencias.md  # diagnostics and references
   06_registro_experimentos.md     # every run: configuration, time, folder
   07_hipoteses_e_proximos_passos.md # hypotheses and next steps
+  08_registro_de_decisoes.md      # decisions of the day, with what to study if they go wrong
   resultados_auto.md   # table generated from the evaluation files
 src/lumi_ft/           # code: data, modeling/PEFT, training, evaluation
-scripts/               # training, RL, vLLM evaluation, merging, data generation
-handoff/thor*/         # data-generation packages for the Jetson Thor
-tests/                 # automated tests
+scripts/               # training, RL, vLLM evaluation, merging, data generation (see scripts/README.md)
+handoff/               # data-generation packages for the Jetson Thor (see handoff/README.md)
+tests/                 # automated tests (CPU)
 reports/               # data manifests and intermediate reports
+env.sh, pyproject.toml, uv.lock   # environment (caches stay inside the project)
 ```
+
+Not versioned: `data/`, `runs/` (adapters, evaluations, logs), `.venv*`, `.micromamba`, `tools/`, `comparacao.md`.
 
 ### Reproducing the numbers
 

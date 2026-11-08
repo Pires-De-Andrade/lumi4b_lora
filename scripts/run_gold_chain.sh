@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cadeia de 08/11 (versão 4, pedido do usuário às 18:05): RL com gabarito oficial e limite de geração de 4.096 tokens (o mesmo da avaliação).
+# Cadeia de 08/11 (versão 4, 18:05): RL com gabarito oficial e limite de geração de 4.096 tokens (o mesmo da avaliação).
 # O `gspo_gold` com 2.048 foi interrompido no ciclo 2 (pasta runs/grpo/gspo_gold): 36% das respostas de múltipla escolha
 # truncavam (52% na WebInstruct) e respostas corretas e longas valiam 0. Receita igual à do `gspo1` (ponto de partida `adalberto`, 8 ciclos,
 # T 0,6, top-p 0,95, --ratio seq, lr 2e-5); muda o conjunto de questões E o limite (--max-new 4096). Nome novo: `gspo_gold4k`.

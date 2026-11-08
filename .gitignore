@@ -1,26 +1,26 @@
+# ambientes e caches (tudo fica dentro do projeto, ver env.sh)
 .venv*/
 .cache/
+.micromamba/
+.pytest_cache/
+tools/
 __pycache__/
 *.pyc
 .env
+
+# dados, adaptadores, avaliações e registros (grandes ou regeráveis)
 /data/
-comparacao.md
-tools/
 runs/
-.micromamba/
-.pytest_cache/
-/handoff/thor/data/
-/handoff/thor/out/
-/handoff/thor/.venv-gen/
+
+# arquivo local, não versionado
+comparacao.md
+
+# pacotes da Thor: só o plano e os scripts vão para o Git
+/handoff/*/data/
+/handoff/*/out/
+/handoff/*/.venv-gen/
+/handoff/*/*.tar.gz
 /handoff/*.tar.gz
-/handoff/thor/*.tar.gz
-/handoff/thor2/data/
-/handoff/thor2/out/
-/handoff/thor2/.venv-gen/
-/handoff/thor2/*.tar.gz
-/handoff/thor3/data/
-/handoff/thor3/out/
-/handoff/thor3/.venv-gen/
-/handoff/thor3/*.tar.gz
+# pacote 4: não versionado
 /handoff/thor4/
 /handoff/thor4_pacote.sha256

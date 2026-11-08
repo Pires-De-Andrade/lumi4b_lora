@@ -48,7 +48,7 @@ Convenções e protocolo: [01_protocolo.md](01_protocolo.md). Tabela completa e 
 
 Na validação limpa do GSM8K (676 itens) o `viab` tem 67,2% e o Lumi 81,7% (a contaminação inflava o candidato em ~4 pontos).
 
-**Leitura:** a forma foi atingida (português, `</think>` fecha, quase não há laços). A nota caiu: parte é formato (o modelo escreve a resposta em prosa em vez de `#### N`; no GSM8K a nota flexível cai 5 pontos contra 14 da estrita), parte é capacidade perdida (na múltipla escolha, mesmo com a leitura mais generosa, a letra em qualquer lugar do texto, são 14,5 pontos a menos: 55,1% contra 69,6%). **Veredito:** H1 refutada para a nota; o gate da fase 2 falhou. **Limites:** uma execução, uma taxa, 1 época; não separei idioma do traço, comprimento menor e deriva do LoRA.
+**Leitura:** a forma foi atingida (português, `</think>` fecha, quase não há laços). A nota caiu: parte é formato (o modelo escreve a resposta em prosa em vez de `#### N`; no GSM8K a nota flexível cai 5 pontos contra 14 da estrita), parte é capacidade perdida (na múltipla escolha, mesmo com a leitura mais generosa, a letra em qualquer lugar do texto, são 14,5 pontos a menos: 55,1% contra 69,6%). **Veredito:** H1 refutada para a nota; o gate da fase 2 falhou. **Limites:** uma execução, uma taxa, 1 época; não foram separados idioma do traço, comprimento menor e deriva do LoRA.
 
 ## E2. `adalberto`: traços de um professor forte
 
@@ -227,7 +227,7 @@ Com o limite de 2.048 tokens (o de 1.024 do `adalberto` cortaria o p90 dos racio
 
 ## E13. SFT só com exemplos sem thinking: melhorar o modo sem thinking primeiro (ADIADO, 08/11 13:05)
 
-**Atualização (08/11, 13:05): adiado.** O usuário voltou o foco ao modo **com thinking** (RL a partir do `thor_pt`, [04](04_rl_grpo.md)); os três treinos saíram da fila e os dados continuam prontos em `data/nt_*.parquet`. O diagnóstico D8 ([05](05_diagnosticos_e_referencias.md)) vale de qualquer forma. **Decisão original (08/11, 13:00):** a prioridade passaria a ser **melhorar o modo sem thinking**; só depois se analisa como treinar o thinking sem estragá-lo. O RL a partir do `thor_pt` (H33) e a proteção do modo sem thinking no RL (H22) ficam para essa segunda fase.
+**Atualização (08/11, 13:05): adiado.** O foco voltou ao modo **com thinking** (RL a partir do `thor_pt`, [04](04_rl_grpo.md)); os três treinos saíram da fila e os dados continuam prontos em `data/nt_*.parquet`. O diagnóstico D8 ([05](05_diagnosticos_e_referencias.md)) vale de qualquer forma. **Decisão original (08/11, 13:00):** a prioridade passaria a ser **melhorar o modo sem thinking**; só depois se analisa como treinar o thinking sem estragá-lo. O RL a partir do `thor_pt` (H33) e a proteção do modo sem thinking no RL (H22) ficam para essa segunda fase.
 
 **Ponto de partida (D8, [05](05_diagnosticos_e_referencias.md)):** o conteúdo da múltipla escolha sem thinking não caiu (flexível 63 a 64%); o que cai é o formato (`Resposta: X`). A matemática sem thinking sobe com respostas passo a passo do Qwen3-30B. Ou seja, parte do que falta se corrige com **dados no formato certo**, e isso se testa barato: treino só com exemplos sem thinking (11 a 15 min) mais a avaliação nos dois modos (12 min).
 

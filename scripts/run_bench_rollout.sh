@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Benchmark A/B da velocidade da geração do RL (pedido do usuário, 08/11 18:50): roda scripts/bench_rollout.py para várias configurações do
+# Benchmark A/B da velocidade da geração do RL (08/11 18:50): roda scripts/bench_rollout.py para várias configurações do
 # vLLM, uma por processo (motor novo cada vez), com o mesmo modelo, prompts e amostragem. Não mexe no RL (só arquivos novos).
 # Configurações (NOME|prefix caching|backend Mamba|memória): a base repete no fim para medir o ruído entre execuções.
 # Cada execução tem tempo máximo (CFG_TIMEOUT, 1.500 s). Uma que falhe (ex.: o FlashInfer não compilar) não derruba as outras.

@@ -1,6 +1,6 @@
 # Plano da Thor (3): traduzir com o Nemotron 30B e gerar questões de outros domínios
 
-Este arquivo é para o Claude Code da Jetson Thor. Leia tudo e execute os passos 0 a 5 em ordem. Pare e reporte ao usuário em cada **PARE E REPORTE**.
+Roteiro de execução na Jetson Thor. Leia tudo e execute os passos 0 a 5 em ordem. Pare e reporte em cada **PARE E REPORTE**.
 
 ## Contexto
 

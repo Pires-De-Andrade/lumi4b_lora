@@ -24,7 +24,7 @@ As metas ficam entre dois precedentes. Nas 4 provas em comum com a Nota (sem MML
 
 ## Atualização de escopo (2026-11-07)
 
-O gate da fase 2 falhou na nota: os dados do GigaVerbo `reasoning`, sozinhos, ensinam o formato e o português, mas o modelo acerta menos que o Lumi (ver fase 2). Com o prazo de 2 dias para o projeto, o usuário decidiu ampliar o escopo em vez de encerrar. **As metas, o critério de vitória e os limiares não mudam** (regra 4); muda o que se pode fazer para alcançá-los.
+O gate da fase 2 falhou na nota: os dados do GigaVerbo `reasoning`, sozinhos, ensinam o formato e o português, mas o modelo acerta menos que o Lumi (ver fase 2). Com o prazo de 2 dias para o projeto, decidiu-se ampliar o escopo em vez de encerrar. **As metas, o critério de vitória e os limiares não mudam** (regra 4); muda o que se pode fazer para alcançá-los.
 
 | O que entra | Onde |
 | --- | --- |
@@ -35,7 +35,7 @@ O gate da fase 2 falhou na nota: os dados do GigaVerbo `reasoning`, sozinhos, en
 | **Validação limpa**: cerca de um terço da validação do GSM8K estava duplicada em outra tradução nos dados de treino; as comparações usam os 676 itens limpos | A-15 |
 | **Comparação em quatro colunas**: Nemotron 3 Nano 4B com raciocínio, Lumi com raciocínio, nosso Lumi com raciocínio em inglês e nosso Lumi com raciocínio em português | A-16, A-17 e [comparacao.md](comparacao.md) |
 
-O que continua fora: APO, QLoRA, publicação, tool calling e contexto longo. **Continuar o treino com raciocínio em inglês** é um teste posterior, que o usuário conduz depois de esgotado o ganho em português; aqui ele só existe como uma coluna da comparação, para separar o ganho do treino do custo do idioma.
+O que continua fora: APO, QLoRA, publicação, tool calling e contexto longo. **Continuar o treino com raciocínio em inglês** é um teste posterior, que os autores conduzem depois de esgotado o ganho em português; aqui ele só existe como uma coluna da comparação, para separar o ganho do treino do custo do idioma.
 
 ## Contexto e evidências
 
@@ -109,7 +109,7 @@ Este projeto cobre um SFT por adaptador sobre os pesos do Lumi-4B, comparando Lo
 
 - QLoRA e QDoRA: os pesos em BF16 cabem na RTX 4090, e a quantização não promete ganho de qualidade. Se a memória apertar, a saída é reduzir o batch físico e acumular gradientes.
 - APO. Pede outro PRD.
-- Continuar o treino com raciocínio em inglês: teste posterior do usuário; aqui é só uma coluna da comparação.
+- Continuar o treino com raciocínio em inglês: teste posterior dos autores; aqui é só uma coluna da comparação.
 - Melhorar o IFEval: aqui ele é só uma trava contra regressão.
 - Raciocínio em conversa com vários turnos: todos os exemplos de treino têm um só turno. O model card registra essa limitação.
 - Pré-treino continuado dos pesos completos (CPT): avaliado e adiado. O Lumi já raciocina em português com forma correta; a queda está na nota da múltipla escolha, que o CPT não corrige de forma previsível, e a 4090 treina ~0,5 bilhão de tokens por dia. Um diagnóstico português x inglês no MMLU-ProX (`mmlu_prox_diag_*`) decide se vale reabrir a ideia.
@@ -523,7 +523,7 @@ Um treino pequeno mostra se o caminho funciona antes de gastar GPU com a matriz 
 
 **Gate:** ao menos 95% das respostas fecham `</think>`, ao menos 90% dos traços estão em português e a nota na validação do GSM8K-PT tem IC 95% da diferença acima de 0 contra o Lumi sem raciocínio. Se falhar, parar e decidir entre mais dados, traços gerados e verificados (decidido em 2026-11-07: dentro deste PRD, ver a fase 2b) ou encerrar.
 
-**Resultado de 2026-11-07: o gate falhou na nota e passou na forma.** Forma: 99,7% das respostas fecham `</think>` e trazem texto (99,2% na múltipla escolha; o Lumi: 95,4% e 86,2%), 99,7% dos traços em português (o Lumi: 0%) e truncamento de 0,3% (o Lumi: 4,7% e 13,8%). Nota com raciocínio contra o Lumi sem raciocínio, GSM8K-PT validação: 71,5% contra 81,4% no strict (−9,9, IC 95% [−12,7, −7,1]) e 80,3% contra 81,5% no flexível (−1,2, [−3,4, +1,0]); múltipla escolha: 43,4% contra 63,9% (−20,5) no strict e 53,0% contra 63,4% (−10,4) no flexível. Parte da queda do strict é formato (a resposta sai em prosa depois do `</think>`, sem `#### N` ou `Resposta: X`), mas não toda: com a leitura mais generosa (qualquer letra no texto), a múltipla escolha fica em 55,1% contra 69,6% do Lumi. O modo sem raciocínio também piorou (GSM8K strict −20,2, flexível −3,9; múltipla escolha flexível −6,8). Decisão do usuário em 2026-11-07: ampliar o escopo (fase 2b); ver [discovery.md](discovery.md) §15.
+**Resultado de 2026-11-07: o gate falhou na nota e passou na forma.** Forma: 99,7% das respostas fecham `</think>` e trazem texto (99,2% na múltipla escolha; o Lumi: 95,4% e 86,2%), 99,7% dos traços em português (o Lumi: 0%) e truncamento de 0,3% (o Lumi: 4,7% e 13,8%). Nota com raciocínio contra o Lumi sem raciocínio, GSM8K-PT validação: 71,5% contra 81,4% no strict (−9,9, IC 95% [−12,7, −7,1]) e 80,3% contra 81,5% no flexível (−1,2, [−3,4, +1,0]); múltipla escolha: 43,4% contra 63,9% (−20,5) no strict e 53,0% contra 63,4% (−10,4) no flexível. Parte da queda do strict é formato (a resposta sai em prosa depois do `</think>`, sem `#### N` ou `Resposta: X`), mas não toda: com a leitura mais generosa (qualquer letra no texto), a múltipla escolha fica em 55,1% contra 69,6% do Lumi. O modo sem raciocínio também piorou (GSM8K strict −20,2, flexível −3,9; múltipla escolha flexível −6,8). Decisão de 2026-11-07: ampliar o escopo (fase 2b); ver [discovery.md](discovery.md) §15.
 
 ### Fase 2b: dados de professor e GRPO (novo escopo)
 
@@ -610,7 +610,7 @@ O maior risco é de resultado: o Tucano 3.7B Think usou os mesmos dados e só ga
 - [ ] Qual harness e quais parâmetros o CEIA usou no cartão (temperatura, few-shot, prompts, limite de tokens e raciocínio nos modelos comparados)? O cartão não documenta nada disso. Pedir também o notebook `colab_graficos_llms-2.ipynb`, citado na primeira versão do cartão.
 - [x] Vale usar [`adalberto-temp/gsm8k-sft-thinking-pt`](https://huggingface.co/datasets/adalberto-temp/gsm8k-sft-thinking-pt)? Decidido em 2026-11-07: sim, só como experimento, com o filtro D-12 e a validação limpa (A-15). Sem licença declarada, não entra em nada que seja publicado sem decisão registrada.
 - [ ] Qual é o ponto de partida do GRPO? Hoje é o adaptador `adalberto`; o DoRA empatou com o LoRA, então ele não muda. O `grpo1` (re)começou às 20:11 de 07/11, depois do diagnóstico português x inglês.
-- [ ] O raciocínio em português é requisito fixo? A comparação em quatro colunas (A-16) mede o custo do idioma; a decisão fica para depois do teste com raciocínio em inglês, conduzido pelo usuário.
+- [ ] O raciocínio em português é requisito fixo? A comparação em quatro colunas (A-16) mede o custo do idioma; a decisão fica para depois do teste com raciocínio em inglês, conduzido pelos autores.
 - [ ] Reabrir o CPT? Depende do diagnóstico português x inglês no MMLU-ProX.
 
 

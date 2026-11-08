@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Uso: scripts/detach.sh [--gpu] <nome> <comando...>
 # --gpu: recusa lançar se a GPU já estiver em uso (processo ou mais de 1 GiB de VRAM ocupada).
-# Roda o comando numa sessão tmux própria, independente do Claude Code e do SSH.
+# Roda o comando numa sessão tmux própria, independente do terminal e do SSH.
 # Log:      runs/jobs/<nome>.log     Código de saída: runs/jobs/<nome>.exit
 # Acompanhar: tmux attach -t <nome>   |   tail -f runs/jobs/<nome>.log
 set -euo pipefail

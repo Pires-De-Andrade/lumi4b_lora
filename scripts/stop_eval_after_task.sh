@@ -3,7 +3,7 @@
 # O eval_vllm.py grava o summary.json por último (depois do .jsonl e do _scores.json), então o resultado dessa prova já está inteiro em disco;
 # o que vier depois (o modo seguinte) é perdido, e a retomada pula o que está no summary.json.
 # Uso: scripts/stop_eval_after_task.sh <pid do eval_vllm.py> <summary.json> <prova> <modo>
-# Exemplo (08/11 17:05, pedido do usuário: liberar a GPU para o gspo_gold):
+# Exemplo (08/11 17:05: liberar a GPU para o gspo_gold):
 #   scripts/detach.sh lumi-stop scripts/stop_eval_after_task.sh 440452 runs/eval/base/summary.json mmlu_prox_test thinking
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
