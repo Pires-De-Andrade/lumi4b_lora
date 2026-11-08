@@ -608,3 +608,33 @@ Teste de fumaça (`run_grpo.sh smoke`, 1 iteração, 16 prompts × 4 respostas, 
 - **Fila refeita** (01:02): `grpo4` (T 0,6, top-p 0,95, **sem** o filtro, KL 0,04), triagem por camadas do `adalberto`, `grpo3` (Dr. GRPO, 70% de múltipla escolha, sem o filtro), `raft1` (só respostas certas), `gspo1` (razão por sequência, sem o filtro) e `adalberto_lr5e5`. Todos com 4 ciclos, a partir do `adalberto`, guarda a 5%.
 - **Triagem por camadas** (`scripts/merge_adapter_layers.py`): funde só parte do adaptador, sem treinar (zera o efeito do resto): camadas 0-20, camadas 21-41, sem MLP (Mamba e atenção) e só MLP. Avaliação só com thinking na validação. Aproximada: zerar depois do treino não equivale a treinar só naquelas camadas. A hipótese a testar é a do MLP (fatos nos MLPs; o adaptador mexe nos 17).
 - **Código:** `grpo_train_kl.py` e `run_grpo_kl.sh` são cópias com KL e `--limit`; a ser unificado com `grpo_train.py` e `run_grpo.sh` quando nenhum job os usar. `run_grpo.sh` ganhou `--top-p`, `--mask-truncated`, `--max-noclose`, `--ratio seq` (GSPO) e `--positives-only`; `grpo_status.py` resume um GRPO por ciclo. Lição: não editar um `.sh` enquanto ele roda (o `grpo1` saiu com código 1 por isso; resultados intactos).
+
+### 20.14 Resultados da noite e triagem por camadas (08/11/2026, 09:30)
+
+- **Rodadas de GRPO** (4 ciclos, a partir do `adalberto`, T 0,6, top-p 0,95; validação limpa, com / sem thinking; ▲ = IC acima de 0, ▼ = abaixo):
+
+| Rodada | GSM8K | Múltipla escolha | Entropia (ciclo 3) |
+| --- | --- | --- | --- |
+| `grpo3` (Dr. GRPO, 70% MCQ, sem filtro) | 84,6 ▲ / 79,1 | 66,5 / **43,1 ▼** | 0,89 (sobe) |
+| `grpo4` (KL 0,04, sem filtro) | 84,3 ▲ / 79,7 | 62,9 ▼ / **43,1 ▼** | 0,75 (sobe) |
+| `raft1` (só respostas certas) | 82,8 / 78,4 | 61,6 ▼ / 59,2 | 0,18 (cai) |
+| `gspo1` (razão por sequência) | 84,3 / 79,9 | **67,8** (−1,8; IC −6,2 a +2,6) / 59,5 | 0,45 (estável); 40 a 50% dos tokens cortados |
+| `adalberto_lr5e5` (SFT, lr 5e-5) | 83,1 / 80,2 ▲ | 63,4 ▼ / 57,9 ▼ | – |
+
+  O KL de 0,04 não segurou a entropia (KL médio 0,04 por token no ciclo 3). O `grpo3` e o `grpo4` derrubaram a múltipla escolha **sem thinking** para 43,1% (o RL só treina o modo com thinking e não protege o outro). Nenhuma rodada passa o critério do PRD. O `gspo1` é o mais estável e o melhor com thinking; continua até 8 ciclos (`queue-gspo1b`, resumindo do ciclo 4; a avaliação de 4 ciclos ficou em `runs/eval/gspo1_c4`).
+- **Triagem por camadas** (adaptador `adalberto` fundido só em parte, sem treinar; avaliação com thinking; ▼ = IC abaixo de 0):
+
+| Parte mantida | GSM8K | Múltipla escolha | Traço em português |
+| --- | --- | --- | --- |
+| adaptador completo | 83,3 | 62,3 ▼ | 99,4% |
+| camadas 0 a 20 | 83,6 | 62,6 ▼ | 0% (inglês) |
+| camadas 21 a 41 | 76,6 ▼ | 18,4 ▼ (fecha `</think>` 22,9%) | 98,9% |
+| sem MLP (Mamba e atenção) | 81,7 | 60,0 ▼ | 98,7% |
+| **só MLP** (34 módulos) | **83,9** | **69,6** (igual ao Lumi, IC −3,4 a +3,4) | **2,4%** (inglês) |
+
+  Leitura: o adaptador dos MLPs sozinho dá o ganho em matemática (+2,2) sem custo na múltipla escolha, mas o raciocínio continua em inglês; a perda de múltipla escolha vem das partes do Mamba (`in_proj`) e da atenção, mesmo quando o traço sai em inglês (camadas 0 a 20). Isso contraria a ideia de que o português em si é o culpado. As camadas 21 a 41 sozinhas quebram o modelo (as outras se ajustaram em conjunto). É uma triagem aproximada: zerar depois do treino não equivale a treinar só nesses módulos.
+- **Próximo teste** (`queue-mlp`): SFT só com LoRA em `up_proj` e `down_proj` (`--targets mlp`, 34 módulos), mesmos dados e hiperparâmetros do `adalberto` (r 16, lr 1e-4, 1 época), para ver se o MLP sozinho aprende o raciocínio em português sem perder a múltipla escolha. `TARGETS` em `peft_setup.py`, `--targets` em `train_sft.py`, 4 testes novos em `tests/test_peft_targets.py`.
+
+### 20.15 Organização dos estudos (08/11/2026, 11:10)
+
+- Criada a pasta `estudos/` com os resultados organizados como estudos de ablação: `README.md` (pergunta, critério, achados, mapa), `01_protocolo.md`, `02_sft_dados_e_professor.md`, `03_ablacao_camadas_e_mlp.md`, `04_rl_grpo.md`, `05_diagnosticos_e_referencias.md`, `06_registro_experimentos.md` (tempos de treino e de avaliação de cada rodada, ≈ 18 h de GPU no total), `07_hipoteses_e_proximos_passos.md` (registro de hipóteses H0 a H25 com veredito, ameaças à validade, próximos experimentos) e `resultados_auto.md`, **gerado** por `scripts/gen_estudos_resultados.py` a partir de `runs/eval/` (nota estrita na validação limpa, diferença contra o Lumi com IC 95%, forma da saída, minutos de avaliação). Regerar depois de cada rodada nova.

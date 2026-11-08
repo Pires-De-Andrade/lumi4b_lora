@@ -17,6 +17,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     d = TrainConfig()
     ap.add_argument("--arm", choices=["lora", "dora"], default=d.arm)
+    ap.add_argument("--targets", choices=["all", "mlp"], default=d.targets, help="módulos do adaptador: os 71 do PRD ou só o MLP (34)")
     ap.add_argument("--r", type=int, default=d.r)
     ap.add_argument("--lr", type=float, default=d.lr)
     ap.add_argument("--epochs", type=int, default=d.epochs)
@@ -35,7 +36,7 @@ def main() -> int:
     a = ap.parse_args()
     cfg = TrainConfig(arm=a.arm, r=a.r, lr=a.lr, epochs=a.epochs, eff_batch=a.eff_batch, token_budget=a.token_budget,
                       seed=a.seed, mix=a.mix, frac=a.frac, viab=a.viab, data=a.data, valid=a.valid, out=a.out,
-                      save_every=a.save_every, log_every=a.log_every, max_steps=a.max_steps)
+                      save_every=a.save_every, log_every=a.log_every, max_steps=a.max_steps, targets=a.targets)
     print(json.dumps(train(cfg), indent=1, default=str))
     print("EXIT_OK")
     return 0

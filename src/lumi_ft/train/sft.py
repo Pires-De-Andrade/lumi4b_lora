@@ -124,6 +124,7 @@ class TrainConfig:
     save_every: int = 200
     log_every: int = 10
     max_steps: int = 0  # >0: para depois de N passos (depuração)
+    targets: str = "all"  # all = os 71 módulos do PRD | mlp = só up_proj e down_proj (17 camadas)
 
 
 def default_budget(arm: str) -> int:
@@ -179,7 +180,7 @@ def train(cfg: TrainConfig) -> dict:
     torch.manual_seed(cfg.seed)
     model = load_model("native")
     model.config.use_cache = False  # sem gradient checkpointing (PRD): memória medida na fase 0
-    pm = add_adapter(model, r=cfg.r, use_dora=(cfg.arm == "dora"))
+    pm = add_adapter(model, r=cfg.r, use_dora=(cfg.arm == "dora"), targets=cfg.targets)
     pm.train()
     params = {n: p for n, p in pm.named_parameters() if p.requires_grad}
     opt = torch.optim.AdamW(list(params.values()), lr=cfg.lr, betas=(0.9, 0.999), weight_decay=0.0)
