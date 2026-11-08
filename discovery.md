@@ -710,3 +710,30 @@ Teste de fumaça (`run_grpo.sh smoke`, 1 iteração, 16 prompts × 4 respostas, 
 - Mesma lógica para o resto do E11: as 14 rodadas de capacidade, tipo de bloco, posição e escala variam um eixo que `cap_r04_std` e o E10 já mostraram irrelevante. **Canceladas** a pedido (removidas de `scripts/capacity_plan.txt`; as concluídas ficam nos resultados). Código e testes (`--rank-pattern`, `--alpha-pattern`, `--lr-mult`, `--layers`, `--targets`, `--rslora`) continuam no repositório. `resultados_auto.md` só mostra as rodadas feitas.
 - Foco: `gspo_thor` (rodando), RL com as 12.000 questões de gabarito oficial (aguarda a Thor), suíte de teste dos candidatos e variações de uma coisa por vez no RL.
 
+
+### 20.25 `gspo_thor` terminou: o RL desfaz os laços do `thor_pt`, mas empata com o `gspo1` e não passa o Lumi (08/11/2026, 14:50)
+
+- 8 ciclos a partir do `thor_pt`, 13:14 a 14:50 (1,4 h: geração 47 min, treino 29 min, avaliação final 7 min). Guarda de `</think>` nunca disparou (0% em todos os ciclos).
+- Validação limpa, com thinking: múltipla escolha **67,0%** (−2,6 contra o Lumi, IC −7,0 a +1,6), GSM8K **82,5%** (+0,9). Contra o `thor_pt`: múlt. escolha +12,7 (IC +8,6 a +16,9) e GSM8K +4,7; truncação 34% → 12,2%. Contra o `gspo1`: −0,5 (IC −4,7 a +3,6), empate.
+- Ainda falta para o critério do PRD: fecha `</think>` em 87,8% (pede 98%); sem thinking, múlt. escolha 60,0% (−3,9 contra o Lumi, IC −8,3 a +0,5; pede perda de no máximo 1 ponto); o GSM8K sem thinking sobe (78,7%, +1,5).
+- Detalhe novo: a mediana de tokens na múlt. escolha é 534, contra 1.035 do `gspo1` (490 do Lumi): mesma nota com raciocínio mais curto. É a mediana de todas as respostas, sem controlar pelas que terminam.
+- Os ciclos 5 a 8 renderam pouco na validação (65,7% no ciclo 4 → 67,0%), enquanto a recompensa de treino subiu 0,72 → 0,76 e a truncação amostrada caiu 25% → 4%.
+- Leitura: dois pontos de partida diferentes (Qwen e Nemotron) chegam ao mesmo nível (~67%) com o mesmo RL e o mesmo gabarito fraco. Isso aponta o gabarito, e não o SFT, como o limite; o gabarito oficial das questões da Thor testa isso.
+- `thor_pt_short` (H38) começou às 14:50 na `cap-queue`.
+
+### 20.26 `thor_pt_short` (H38): cortar a cauda longa dos traços ajuda pouco (08/11/2026, 15:15)
+
+- `thor_pt` só com raciocínio de até 600 tokens (3.738 dos 4.927 problemas; ciência 1.255 de 2.174; os mesmos 5.544 sem thinking): treino 13 min (291 passos), avaliação 10 min.
+- Com thinking (validação limpa): múltipla escolha **57,4%** (+3,1 sobre o `thor_pt`, IC −1,0 a +7,5; −12,2 ▼ contra o Lumi), fecha `</think>` 73,8%, trunca 26,2% (antes 34%); GSM8K 78,8% (+1,0, IC −1,0 a +3,1). Sem thinking: múlt. escolha 63,1% (+0,3), GSM8K 73,1% (−4,1 ▼ contra o Lumi).
+- Leitura: a direção é a prevista (menos laços, nota maior), mas a magnitude é pequena e está dentro do ruído; abaixo da regra de sinal do projeto (+4 com thinking e mesma direção sem). A cauda longa não é a causa principal dos laços. Confusão: o corte também reduziu a ciência (múltipla escolha) em 42%.
+- Decisão: sem RL a partir do `thor_pt_short` (o limiar combinado era ~62% e truncação bem abaixo de 34%) e sem pedir traços mais curtos à Thor. A Thor fica para as questões de gabarito oficial.
+- A `cap-queue` terminou às 15:15 e a `suite-queue` assume a GPU (Lumi, `gspo_thor`, `gspo1`).
+
+### 20.27 Chegaram as 12.000 questões traduzidas: prompts de RL com gabarito oficial (08/11/2026, 15:30)
+
+- `questions_pt.tar.gz` (sha256 `8c4e333920a66208…ca941`, íntegro, sem caminhos suspeitos): 12.000 questões, 11.455 aceitas (95,5%; 545 recusadas: 111 números divergentes, 208 tamanho, 207 alternativas não voltaram, 19 não terminou). Fontes aceitas: WebInstruct-verified 6.738, MedMCQA 4.717; 125,6 min na Thor. A cópia parcial (9.252 linhas) foi descartada a pedido do usuário.
+- Conversor novo `scripts/make_questions_rl_prompts.py` (+9 testes): prompt = o da avaliação (`mcq.build_prompt`), gabarito = o oficial. Filtros: veredito ok, esquema (2 a 10 alternativas, gabarito dentro do intervalo, id único), 8-grama contra as provas e a validação em português (131 saem) e contra o MMLU-ProX em inglês (0 saem; o índice foi conferido: pega um item conhecido), prompt até 1.024 tokens (0 saem). Saída: `data/grpo_prompts_gold.jsonl` com 11.324 de múltipla escolha + 5.612 de matemática (a múltipla escolha antiga, de gabarito fraco, não entra).
+- Gabarito: A 3.006, B 2.865, C 2.701, D 2.281, E 424, F 26 e poucos de G a J; 9.010 questões com 4 alternativas, 1.934 com 5, 248 com 3 e 132 com 6 a 10. A recompensa de múltipla escolha foi conferida com 4, 5 e 10 alternativas.
+- Qualidade da tradução (2 pares lidos, inglês e português): alternativas na mesma ordem e números iguais; termos técnicos às vezes errados ("bond" → "bonde/bônus"). O gabarito é o oficial, então a recompensa não depende da tradução, mas o enunciado pode ficar estranho.
+- `scripts/run_grpo.sh` ganhou `--prompts` (padrão igual ao anterior). Decisão do usuário (15:35): rodar o RL depois do `gspo_thor` da suíte. Cadeia `gold-chain` (`scripts/run_gold_chain.sh`): espera `INICIO suíte gspo_thor`, cria `suite.stop` (a suíte termina o `gspo_thor` e não começa o `gspo1`), roda `gspo_gold` (adalberto, receita do `gspo1`, 8 ciclos, 1.024 questões de múltipla escolha no total: 618 WebInstruct e 406 MedMCQA) e retoma a suíte (`gspo1`). Ponto de partida `adalberto` e não `thor_pt_short`: 62,3% contra 57,4% em múlt. escolha com thinking (−4,9, IC −9,9 a 0,0) e fecha 86,8% contra 73,8%.
+- Mudança (15:38, pedido do usuário): a suíte de teste roda o `gspo1` em vez do `gspo_thor`. Ordem: Lumi (já rodando) → suíte do `gspo1` → RL `gspo_gold`. Como o `run_suite.sh` estava rodando, não foi editado: foi criado `suite.stop` (a suíte antiga para depois do Lumi), a `gold-chain` foi relançada (versão 2) e há um script novo, `scripts/run_suite_models.sh`, que recebe a lista `NOME|modelo` por argumento. A suíte do `gspo_thor` pode ser feita depois com esse script.

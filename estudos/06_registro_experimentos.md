@@ -24,7 +24,7 @@ Planejadas, na ordem (`scripts/capacity_plan.txt`); tempos entram aqui quando ca
 | `cap_r04_std` | E11 | `adalberto`, r=4, alpha 32 (4,3 M param.) | **feito**: treino 25,6 min, avaliação 12 min; MCQ 62,3% ▼ (igual ao r=16) |
 | `thor_pt` | E12 | Nemotron 30B traduzido para o português (4.927 problemas) | **feito**: treino 17,6 min (328 passos), avaliação 12 min; MCQ 54,3% ▼, trunca 34% (laços) |
 | `thor_en` | E12 | os mesmos 4.927 problemas, raciocínio original em inglês | **feito**: treino 16 min, avaliação 10 min; MCQ 60,3% ▼, GSM8K 83,1% (com thinking) |
-| `thor_pt_short` | E12 | `thor_pt` só com raciocínio de até 600 tokens (3.738 de 4.927 problemas; ciência 1.255 de 2.174), mesmos 5.544 sem thinking | **na fila** (08/11): começa quando o `gspo_thor` terminar (~16:00); ~290 passos, ~15 min de treino e ~12 de avaliação |
+| `thor_pt_short` | E12 | `thor_pt` só com raciocínio de até 600 tokens (3.738 de 4.927 problemas; ciência 1.255 de 2.174), mesmos 5.544 sem thinking | **feito**: treino 13 min (291 passos), avaliação 10 min; MCQ com thinking 57,4% ▼ (+3,1 sobre o `thor_pt`, IC −1,0 a +7,5), trunca 26,2% |
 | `thor_pt_math` | E12 | só a matemática, em português | **descartado** (sem ganho a explicar; só matemática) |
 | `nt_both`, `nt_thor`, `nt_qwen` | E13 | SFT só com exemplos sem thinking | **adiados** (dados prontos) |
 | `cap_r64_rs`, `cap_r64_std`, `cap_r04_rs` | E11 | rank e lei de escala | **cancelada** (08/11) |
@@ -55,7 +55,9 @@ Planejadas, na ordem (`scripts/capacity_plan.txt`); tempos entram aqui quando ca
 
 Avaliações intermediárias de RL (só thinking, ~8 min cada): `grpo1_it3`, `grpo1_u4` (`grpo1` com 4 atualizações), `grpo1_it6`, `grpo2_it2`. A avaliação de 4 ciclos do `gspo1` ficou em `runs/eval/gspo1_c4`. O treino do ciclo 0 do `grpo1` estourou a memória na primeira tentativa e foi refeito com gradient checkpointing (pico de 12,3 GiB); a geração do ciclo 0 foi aproveitada.
 
-RL a partir do SFT da Thor: `gspo_thor` (8 ciclos, receita do `gspo1`, `--init runs/train/thor_pt/adapter`, `--max-noclose 0.85`), sessão `rl-thor`, começa quando a `cap-queue` parar (depois do `thor_en`, ~13:17); pasta `runs/grpo/gspo_thor`. Tempos entram aqui quando terminar.
+RL a partir do SFT da Thor: `gspo_thor` (8 ciclos, receita do `gspo1`, `--init runs/train/thor_pt/adapter`, `--max-noclose 0.85`), sessão `rl-thor`, 13:14 a 14:50; pasta `runs/grpo/gspo_thor`. Geração 47 min (9,1 M tokens), treino 29 min, avaliação final 7 min (+6 min da avaliação do ciclo 4, em `runs/eval/gspo_thor_it4`, fora do total): **1,4 h**. Resultado em [04](04_rl_grpo.md): múltipla escolha com thinking 67,0%, empata com o `gspo1`.
+
+RL com gabarito oficial: `gspo_gold` (8 ciclos, receita do `gspo1`: `--init runs/train/adalberto/adapter`, T 0,6, top-p 0,95, `--ratio seq`, `--max-noclose 0.05`, avaliação do ciclo 4; `--prompts data/grpo_prompts_gold.jsonl`), **na fila** (08/11 15:35) em `gold-chain`: começa depois da suíte de teste do `gspo1` (~17:55); pasta `runs/grpo/gspo_gold`. Tempos entram aqui quando terminar.
 
 ## Referências, diagnósticos e medições
 
@@ -65,6 +67,7 @@ RL a partir do SFT da Thor: `gspo_thor` (8 ciclos, receita do `gspo1`, `--init r
 | `nemotron4b` | D1 | Nemotron 3 Nano 4B, validação | 5,3 min | `runs/eval/nemotron4b` |
 | `base_ptprefill`, `base_ptinstr` | E0 | Lumi com prefill e com instrução em português | 6,3 e 6,0 min | `runs/eval/base_pt*` |
 | `mmlu_prox_diag_pt` e `_en` | D2 | Lumi original, 1.200 questões nos dois idiomas, com e sem thinking | 32 min | `runs/eval/base` |
+| Suíte de teste: `base`, `gspo1` (o `gspo_thor` ficou de fora por pedido do usuário) | PRD | GSM8K-PT, MMLU-ProX PT, ENEM, BLUEX e OAB (17.417 itens), nos dois modos, `eval_vllm.py --tasks suite` | **na fila** (08/11, ~1,3 h por modelo; o `base` já tem o GSM8K-PT) | `runs/eval/{base,gspo1}` |
 | Entropia dos ciclos do `grpo1` | RL | 8 medições com 512 respostas cada | ~7 min | `runs/grpo/grpo1/entropy` |
 | Geração da autodestilação | E3 | 17.000 problemas, vLLM | ~60 min | `data/selfdist` |
 | Piloto de tradução | E8 | 200 registros, Lumi como tradutor | 88 s | `data/mot_pilot` |
@@ -84,4 +87,4 @@ A fila é sequencial (uma GPU de 24 GiB): os ajustes de um experimento esperam o
 
 ## Dados gerados fora da 4090
 
-Pacote 1 (Qwen3-30B), pacote 2 (Nemotron 30B) e pacote 3 (tradução e questões novas): descrição e estado em [05](05_diagnosticos_e_referencias.md), D7. Nenhum devolveu dados ainda.
+Pacote 1 (Qwen3-30B), pacote 2 (Nemotron 30B) e pacote 3 (tradução e questões novas): descrição e estado em [05](05_diagnosticos_e_referencias.md), D7. Devolvido até agora: do pacote 2 (traduzido), 5.278 registros com raciocínio (08/11, 11:47); do pacote 3, as **12.000 questões traduzidas** (`questions_pt.tar.gz`, 08/11 15:26, sha256 `8c4e3339…ca941`; 11.455 aceitas, 95,5%; 4.717 MedMCQA e 6.738 WebInstruct-verified), convertidas em `data/grpo_prompts_gold.jsonl` (11.324 questões de múltipla escolha com gabarito oficial após o filtro de 8-gramas, mais as 5.612 de matemática).

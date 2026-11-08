@@ -9,7 +9,7 @@ thor_pt|--data data/thor_pt.parquet
 thor_en|--data data/thor_en.parquet
 # Teste da cauda longa (08/11, aprovado pelo usuário): o thor_pt só com os traços de até 600 tokens de raciocínio (3.738 de 4.927; a ciência cai de 2.174 para 1.255). H38.
 # Dados: scripts/subset_think_by_length.py --src data/thor_pt.parquet --max-think-tokens 600 (sha 196c0091…). Roda quando o gspo_thor terminar (~16:00).
-thor_pt_short|--data data/thor_pt_short.parquet
+thor_pt_short|--data data/thor_pt_short.parquet  # FEITO 08/11 15:14: sem sinal (H38), ver estudos/07
 # DESCARTADO (08/11): thor_pt_math era um controle para explicar um GANHO na múltipla escolha; o thor_pt não teve ganho (54,3%) e o treino é só de matemática.
 # thor_pt_math|--data data/thor_pt_math.parquet
 

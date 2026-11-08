@@ -83,7 +83,7 @@ Incidente de processo: o treino do primeiro ciclo estourou a memória (22 GiB, u
 
 Nenhuma rodada passa o critério do PRD (múltipla escolha com IC acima de 0 contra o Lumi, queda sem thinking de no máximo 1 ponto, 98% de fechamento). O RL melhora a forma e quase fecha a distância com thinking, mas não protege o modo sem thinking. Caminhos em [07_hipoteses_e_proximos_passos.md](07_hipoteses_e_proximos_passos.md): proteger o modo sem thinking no RL (perda de SFT sem thinking misturada), partir de um SFT melhor (traços do Nemotron 30B, adaptador só com MLP), e rodar os finalistas na suíte de teste.
 
-## RL a partir do SFT da Thor (`gspo_thor`, em andamento)
+## RL a partir do SFT da Thor (`gspo_thor`, **feito**: empata com o `gspo1`, não passa o Lumi)
 
 **Decisão (08/11, 13:05):** o foco é **melhorar o modo com thinking**. O melhor candidato até agora (`gspo1`, 8 ciclos a partir do `adalberto`) empata com o Lumi na múltipla escolha (67,5%) e passa na matemática (84,3% ▲). O `thor_pt` ([02](02_sft_dados_e_professor.md), E12) tem o raciocínio tão bom quanto o do Lumi **quando termina**, mas entra em laço de repetição em 33% das respostas de múltipla escolha (fecha `</think>` em 66,0%), e o RL com recompensa zero para truncada é a ferramenta que já mostrou reduzir isso (`gspo1`: fechamento 86,8% → 93,2%).
 
@@ -101,6 +101,23 @@ Nenhuma rodada passa o critério do PRD (múltipla escolha com IC acima de 0 con
 | Guarda de `</think>` dispara | O RL degenera a partir de um SFT que já entra em laço; trocar o ponto de partida |
 
 **Resultado parcial (08/11, 14:07, modelo que entra no ciclo 4, só thinking, validação limpa):** múltipla escolha **65,7%** (−3,9 contra o Lumi, sem ▼), fecha 82,9%, trunca 17,1% (o `thor_pt` tinha 54,3% e trunca 34%), mediana de 520 tokens; GSM8K 83,7% (+2,1). Durante o treino, a truncação nas respostas amostradas (T 0,6, 2.048 tokens) caiu 25% → 16% → 8% → 11% (ciclos 0 a 3) e a recompensa de múltipla escolha subiu 0,62 → 0,67 → 0,70 → 0,72; a entropia subiu de 0,64 para 0,74 e desacelera. Contra o `gspo1` no mesmo ponto (`gspo1_c4`: 67,8%, trunca 10,6%) está 2 pontos abaixo (dentro do ruído) e com mais truncação. Falta metade da rodada: a leitura final é a do ciclo 8.
+
+**Resultado final (08/11, 14:50; 8 ciclos, 1,4 h; validação limpa, nota estrita, IC 95% pareado):**
+
+| | GSM8K com thinking | Múlt. escolha com thinking | Fecha / trunca (múlt. escolha) | Mediana de tokens (múlt. escolha) | GSM8K sem | Múlt. escolha sem |
+| --- | --- | --- | --- | --- | --- | --- |
+| Lumi | 81,7 | 69,6 | 86,2% / 13,8% | 490 | 77,2 | 63,9 |
+| `thor_pt` (ponto de partida) | 77,8 ▼ | 54,3 ▼ | 66% / 34% | – | 74,6 | 62,9 |
+| `gspo1` (a partir do `adalberto`) | 84,3 ▲ | 67,5 | 93,2% / 8,1% | 1.035 | 78,6 | 57,7 ▼ |
+| **`gspo_thor`** | **82,5** (+0,9; IC −1,6 a +3,6) | **67,0** (−2,6; IC −7,0 a +1,6) | **87,8% / 12,2%** | **534** | 78,7 (+1,5) | 60,0 (−3,9; IC −8,3 a +0,5) |
+
+- **Contra o ponto de partida:** o RL tirou os laços e recuperou a nota. Múltipla escolha +12,7 (IC +8,6 a +16,9), GSM8K +4,7 (IC +2,5 a +7,1), truncação 34% → 12,2%. Isso apoia a parte fraca da H33 ("o RL desfaz os laços do `thor_pt`").
+- **Contra o Lumi:** não passa. A múltipla escolha com thinking fica 2,6 pontos abaixo (IC inclui 0), fecha `</think>` em 87,8% (o critério pede 98%) e o sem thinking perde 3,9 na múltipla escolha (o critério pede perda de no máximo 1). A parte forte da H33 ("passa o Lumi") **não foi apoiada**.
+- **Contra o `gspo1`:** empate. Diferença de −0,5 na múltipla escolha (IC −4,7 a +3,6) e −1,8 no GSM8K (IC −4,1 a +0,6). Os traços do Nemotron não são melhores que os do Qwen como ponto de partida do RL para esta métrica.
+- **O que o `gspo_thor` tem de diferente:** o raciocínio fica curto (mediana de 534 tokens na múltipla escolha, contra 1.035 do `gspo1` e 490 do Lumi). Mesma nota com metade dos tokens. Cuidado: é a mediana de todas as respostas, não controlada pelas que terminam; não conclua mais que "mais barato por resposta".
+- **Leitura da tabela de previsões:** o resultado (fecha 87,8%, múltipla escolha 67,0%) cai entre as linhas 1 e 2, mais perto da 2 no espírito: os laços saem em boa parte, mas o RL não leva acima do Lumi, e o SFT do Nemotron não é melhor que o do Qwen para esta métrica. O guarda de `</think>` nunca disparou (0% em todos os ciclos).
+- **Durante o treino:** a truncação das respostas amostradas (T 0,6, 2.048 tokens) caiu 25% → 4% e a recompensa de múltipla escolha subiu 0,62 → 0,76 nos 8 ciclos. A avaliação gulosa foi de 65,7% (ciclo 4) para 67,0% (ciclo 8): os ciclos 5 a 8 renderam pouco na validação, apesar da recompensa de treino subir.
+- **Tempos:** geração 47 min (9,1 M tokens), treino 29 min, avaliação final 7 min; avaliação do ciclo 4 de 6 min.
 
 **O que ainda faltará mesmo se passar:** o modo sem thinking (adiado por decisão de 08/11), a suíte de teste dos finalistas, e uma segunda semente.
 
