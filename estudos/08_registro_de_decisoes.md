@@ -128,6 +128,8 @@ Todas as rodadas de RL das etapas 2 a 6 usam a receita e os prompts do `gspo1_c4
 
 **Resultado da etapa 2, SFT `qwen_mix` (15:39), validação limpa, com thinking:** múltipla escolha **62,1%** (−0,3 contra o `adalberto`, IC −4,7 a +4,2; −7,5 contra o Lumi), fecha 83,9% (86,8%), trunca 16,9%, GSM8K 83,4% (+0,1), múltipla escolha sem thinking 62,9% (58,2%); letras previstas sem viés (E 1,9% contra 2,1% do gabarito). **Leitura:** com 5.055 traços de MCQ do Qwen o resultado é o mesmo do `qwen_mix_p` (1.810): 61,8%, 62,1% e 62,3% do `adalberto` não se distinguem; não há efeito de dose no SFT, e o fechamento do `</think>` fica ~3 pontos abaixo do `adalberto`. O RL `gspo_qwen_mix` (início 15:39, ~1,5 h) lê-se contra a faixa de 64,4 a 67,8% das duas sementes do `gspo1`. **Se der errado, estudar:** se o RL ficar na faixa do `gspo1`, os traços de MCQ do Qwen não acrescentam nada nem no SFT nem depois do RL, e o teto da receita (SFT mais RL com este gabarito) está abaixo do Lumi (69,6%).
 
+**Resultado do RL `gspo_qwen_mix` (16:59), validação limpa, com thinking:** múltipla escolha **64,4%** (−3,4 contra o `gspo1_c4`, IC −7,5 a +0,8; −5,2 contra o Lumi, IC −9,9 a −0,8), igual ao `gspo1_s1`; fecha 87,8% (90,9% no `gspo1_c4`), trunca 12,5%, GSM8K 84,0% (+2,4 contra o Lumi, IC −0,1 a +5,0), múltipla escolha sem thinking 65,7%. **Leitura:** o RL a partir do `qwen_mix` fica dentro da faixa de 64,4 a 67,8% do `gspo1`; os traços de MCQ do Qwen não acrescentam nada nem no SFT (62,1%) nem depois do RL. **Se der errado, estudar:** a faixa vale como teto da receita "SFT em português mais RL com este gabarito"; as saídas que não fecham são em 53 a 98% laços de repetição (`estudos/09`, §2), e o diagnóstico `base_ptprefill` (H56) separa o custo do idioma do custo do treino.
+
 **Mistura do `qwen_mix`:** `data/train_adalberto.parquet` como está (14.386 linhas) mais 5.055 traços de MCQ do pacote (2.752 MedMCQA, 2.303 WebInstruct; até 2.048 tokens; 6.260 passaram do filtro de 8-gramas, 1 removido), 19.441 linhas e 13,5 milhões de tokens. Distribuição das letras nos mantidos: A 28,1%, B 25,3%, C 24,5%, D 18,8%, E 3,0%, outras 0,3%; a letra E continua rara (as provas de 5 alternativas têm ~20%), então a distribuição das letras previstas na validação deve ser conferida.
 
 
@@ -148,6 +150,59 @@ Todas as rodadas de RL das etapas 2 a 6 usam a receita e os prompts do `gspo1_c4
 **Dados:** `qwen_mix_short` = `train_adalberto.parquet` (14.386 linhas) + 2.221 traços de MCQ de até 1.024 tokens (1.517 MedMCQA, 704 WebInstruct; 4.039 dos 6.260 passam de 1.024 tokens), 16.607 linhas, 9,6 milhões de tokens. `selfdist_min` = 3.000 traços do `selfdist` (um por problema, até 1.024 tokens), 1,6 milhão de tokens, sem linhas sem raciocínio. **Ordem de leitura:** o teste 2 primeiro, depois o 1.
 
 **Regra de decisão para os RLs seguintes** (escrita antes de ver os resultados): RL a partir do `qwen_mix_short` se fechar ≥ 87% com múltipla escolha ≥ 62%; RL a partir do `selfdist_min` se o acerto entre os que fecham for ≥ 78% e o traço em português ≥ 90%.
+
+
+## Fila da versão 8 (09/11 16:58)
+
+**Mudança:** a versão 7 (que só esperava o RL terminar) foi encerrada e a versão 8 (`scripts/run_noite8_chain.sh`) a substitui; o RL `gspo_qwen_mix` terminou às 16:59 e a versão 8 assumiu às 17:00. Entram as sopas de pesos e o diagnóstico do Lumi com começo forçado em português, antes dos SFTs de teste.
+
+| Ordem | Etapa | O que mede |
+| --- | --- | --- |
+| 1 | Avaliação das sopas `gspo1_soup2` e `gspo1_soup3` (montadas na CPU por `scripts/prepare_soups.sh`) | H55: a média dos pesos das rodadas de RL contra a faixa de 64,4 a 67,8% |
+| 2 | `base_ptprefill` (Lumi, `--prefill "Vou raciocinar em português."`) | H56: custo de pensar em português sem treino |
+| 3 | SFT `qwen_mix_short` | H53: traços curtos reduzem os laços |
+| 4 | SFT `selfdist_min` e `selfdist_300` | H54: quantidade de SFT contra idioma (3.000 e 300 traços) |
+| 5 | Suíte do Lumi, como preenchimento interrompível, por último | referência |
+
+**Por quê:** levantamento de literatura em `estudos/09`. O custo de pensar em português é conhecido (XReasoning, Bode Reasoning, M-Thinker no 4B deixa ~5,5 pontos abaixo do inglês); os laços de repetição explicam 53 a 98% das respostas que não fecham, inclusive no Lumi (94%).
+
+**Regra de decisão para os RLs seguintes** (a mesma da versão 7): RL a partir do `qwen_mix_short` se fechar ≥ 87% com múltipla escolha ≥ 62%; RL a partir do `selfdist_min` ou do `selfdist_300` se o acerto entre os que fecham for ≥ 78% e o traço em português ≥ 90%. **Proposta ainda sem decisão:** fase anti-laço (H57) sobre o melhor candidato.
+
+
+## Fila da versão 11 (09/11 18:28): fase anti-laço primeiro na família da Thor
+
+**Motivo:** a pergunta do usuário (aplicar o Antidoom nas variantes da Thor) foi testada nos dados antes de gastar GPU. Na validação de múltipla escolha com thinking, o detector de laço exato (o mesmo da mineração) pega 129 das 131 respostas que não fecham no `thor_pt`, 82 das 95 no `thor_en`, 44 das 47 no `gspo_thor` e 68 das 74 no `gspo_thor_e1`, contra 4 das 26 no `gspo1` ([discovery §20.59](../discovery.md)). No `gspo1` o não fechamento é raciocínio longo e indeciso, que a fase não trata; na Thor é laço. Além disso, o `thor_pt` iguala o Lumi nos itens em que os dois fecham.
+
+**Mudança:** a versão 10 foi congelada (SIGSTOP) com a mineração do `gspo1` em curso (ela termina e fornece os eventos do teste de fumaça); a versão 11 (`scripts/run_noite11_chain.sh`) espera os processos dela acabarem e segue: (1) teste de fumaça do treino; (2) fase anti-laço no `gspo_thor` (H58): referência de laço em 750 prompts de `heldout`, mineração em 5.000 prompts de múltipla escolha (a matemática não tem laço), treino com parada antecipada, avaliação e taxa de laço depois; (3) SFTs `qwen_mix_short`, `selfdist_min` e `selfdist_300`; (4) treino anti-laço no `gspo1` com os eventos já minerados (teto de ~+0,6 ponto: fica depois, por ser só teste de mecanismo); (5) suíte do `gspo1` por último.
+
+**Regra de leitura da H58 (escrita antes de qualquer resultado):** ver `estudos/07`. Resumo: o mecanismo funciona se o laço exato em `heldout` cair pelo menos à metade com a validação sem perda (múltipla escolha ≥ 67,0%, fecha ≥ 92%, português ≥ 90%); o modelo só passa a ser candidato à suíte no lugar do `gspo1` com múltipla escolha ≥ 69,6%, fecha ≥ 93% e GSM8K limpo ≥ 83%. Se ele não passar, o candidato continua o `gspo1`.
+
+## Fila da versão 10 (09/11 17:22): suíte do `gspo1` por último
+
+**Decisão de 09/11:** a suíte de teste do Lumi passa a rodar na Jetson Thor; na 4090 a última etapa é a suíte do `gspo1` (8 ciclos, `runs/grpo/gspo1/merged`, adaptador `runs/grpo/gspo1/it007/adapter`, uma única execução). Os resultados do Lumi vêm da Thor por arquivo, e a comparação final registra o motor de cada lado (`_engine` do `summary.json`). Conferência entre as máquinas (MMLU-ProX PT de teste com thinking, Lumi, 11.759 itens, gulosa, 4.096 tokens): Thor 53,54% estrito, 53,37% flexível, 27,1% truncadas, 72,5% fecham e respondem, mediana de 996 tokens (6,1 h, 944 tokens/s); 4090 (08/11) 53,57% estrito, 53,52% flexível, 27,1% truncadas, 72,4%, mediana de 1.002 (2,0 h, 2.855 tokens/s). Diferença de 0,03 ponto no acerto estrito: as duas máquinas reproduzem a medida do Lumi.
+
+**Mudança:** a versão 9 foi congelada (SIGSTOP) com a avaliação da `gspo1_soup3` em curso; a versão 10 (`scripts/run_noite10_chain.sh`) é a mesma fila, com duas diferenças: espera só os processos vivos da versão 9 (zumbis de um pai parado não contam) e termina com `scripts/run_suite_models.sh "gspo1|runs/grpo/gspo1/merged"` no lugar da suíte do Lumi. Todas as etapas anteriores são retomáveis e puladas se já prontas. Se a fase anti-laço (H57) ou um SFT de teste superar o `gspo1` pela regra pré-registrada, o candidato da suíte final será trocado antes de a etapa começar (a suíte é a última e só roda uma vez por candidato).
+
+## Fila da versão 9 (09/11 17:14): fase anti-laço e contingência
+
+**Decisões de 09/11:** (1) testar a fase anti-laço (H57) sobre o `gspo1`; (2) **contingência:** se nada superar o `gspo1`, o candidato entregue é o `gspo1` (SFT `adalberto` + 8 ciclos de RL), relatando o que se conseguiu: raciocínio em português, melhora em matemática e piora em múltipla escolha (64,4 a 67,8% contra 69,6% do Lumi, na faixa das duas sementes). O relatório cita os dois limiares de fechamento (90% e 98%) e que o adaptador só liga com thinking.
+
+**Mudança:** a versão 8 foi congelada (SIGSTOP, sem tocar na avaliação em curso) e a versão 9 (`scripts/run_noite9_chain.sh`) espera os processos dela acabarem, depois faz as sopas, o `base_ptprefill`, a fase anti-laço e só então os SFTs de teste e a suíte do Lumi.
+
+| Ordem | Etapa | O que mede |
+| --- | --- | --- |
+| 1 | Sopas `gspo1_soup2` e `gspo1_soup3`; `base_ptprefill` | H55 e H56, como na versão 8 |
+| 2 | Taxa de laço de referência do `gspo1` de 8 ciclos em 750 prompts de `heldout` (gulosa, 3.072 tokens) | base de comparação |
+| 3 | Mineração de laços em 10.000 prompts de treino (8.000 de múltipla escolha, 2.000 de matemática) | eventos (prefixo até o início da repetição, token rejeitado) |
+| 4 | Teste de fumaça (6 eventos, 2 passos) e treino anti-laço, com parada antecipada na validação dos eventos | adaptador `gspo1_antidoom_r1` |
+| 5 | Avaliação da validação do `gspo1_antidoom_r1` e taxa de laço nos mesmos 750 prompts de `heldout` | H57 |
+| 6 | SFTs `qwen_mix_short`, `selfdist_min`, `selfdist_300` e suíte do Lumi por último | H53, H54, referência |
+
+**Regra de leitura da H57** (escrita antes de ver os resultados): apoia se, em `heldout`, o não terminar cair pelo menos à metade e, na validação, a múltipla escolha com thinking ficar ≥ 65,5% (o `gspo1` tem 67,5%; queda de até 2 pontos tolerada), fechar ≥ 95% e o traço em português ficar ≥ 90%. Se apoiar, uma segunda rodada de mineração sobre o modelo novo (o Antidoom relata que consertar um laço pode expor outros).
+
+**Emenda à regra de leitura da H57 (09/11 17:50, depois da referência e antes de qualquer resultado do tratamento):** a referência do `gspo1` de 8 ciclos em `heldout` deu 100 de 500 prompts de múltipla escolha sem terminar (20,0%), dos quais só 8 com laço exato (1,6%); na validação, 4 das 26 respostas sem fechamento. A regra original (não terminar cair à metade e fechar ≥ 95%) é inalcançável por construção. Regra emendada: apoia se a taxa de laço exato em `heldout` cair pelo menos à metade (8 → ≤ 4), o não terminar em `heldout` não subir e, na validação, a múltipla escolha com thinking ficar ≥ 65,5%, fechar ≥ 93,2% e o traço em português ≥ 90%. O ganho máximo possível em nota é ~+0,6 ponto; o teste fica como diagnóstico do mecanismo. A fila segue como está: a mineração já corre e o treino é curto.
+
+**Desenho da perda** (`src/lumi_ft/train/antidoom.py`; versão própria a partir da descrição do blog da Liquid AI): por evento, logits do último token do prefixo; sobe a média dos até 20 escolhidos (alternativas de maior logit da referência com ≥ 2 caracteres alfanuméricos) e desce o rejeitado, em logit, sem softmax sobre o vocabulário; o resto do vocabulário é preso à referência, ponderado pela probabilidade de referência; escolhidos e rejeitado podem se mover até 3 logits sem custo. Continua treinando o adaptador do `gspo1` (LoRA r=16, lr 1e-5, lote de 8 eventos), não um LoRA de rank 128 a 256 como no blog. **Se der errado, estudar:** a perda e os hiperparâmetros (beta, lam_rest, tau) não foram ajustados; o treino não foi rodado em GPU antes do teste de fumaça; com poucos eventos (a taxa de laço do `gspo1` é de uns 5 a 8% em múltipla escolha) a parada antecipada pode chegar cedo demais.
 
 ## Fila da noite (versão 3, 22:21; substituída pela versão 4)
 

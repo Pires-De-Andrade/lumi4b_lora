@@ -20,4 +20,10 @@ if [ ! -s data/selfdist_min.parquet ]; then
   PYTHONPATH=src python scripts/build_teacher_dataset.py --think data/selfdist/think.jsonl --disjoint-inputs --no-base \
     --out data/selfdist_min.parquet --max-think 3000 --max-len 1024 --per-problem 1 || exit 1
 fi
-echo "dados prontos: data/qwen_mix_short.parquet, data/selfdist_min.parquet"
+#   Teste 1b, `selfdist_300`: 300 traços do mesmo conjunto (~10 passos). O XReasoning (arXiv 2505.22888) relata que 100 exemplos bastam para o modelo
+#     pensar no idioma do usuário, com alguma perda de acerto.
+if [ ! -s data/selfdist_300.parquet ]; then
+  PYTHONPATH=src python scripts/build_teacher_dataset.py --think data/selfdist/think.jsonl --disjoint-inputs --no-base \
+    --out data/selfdist_300.parquet --max-think 300 --max-len 1024 --per-problem 1 || exit 1
+fi
+echo "dados prontos: data/qwen_mix_short.parquet, data/selfdist_min.parquet, data/selfdist_300.parquet"

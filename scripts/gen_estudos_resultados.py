@@ -18,7 +18,8 @@ REF = "base"
 
 # (grupo, nome da avaliação, descrição curta)
 RUNS = [
-    ("Referências (sem treino nosso)", [("base", "Lumi original"), ("nemotron4b", "Nemotron 3 Nano 4B (pai do Lumi)")]),
+    ("Referências (sem treino nosso)", [("base", "Lumi original"), ("nemotron4b", "Nemotron 3 Nano 4B (pai do Lumi)"),
+                                          ("base_ptprefill", "Lumi com o começo do raciocínio forçado em português (sem treino)")]),
     ("SFT: dados e professor", [("viab", "viab: 10 mil traços do GigaVerbo, 1 época"), ("adalberto", "adalberto: traços do Qwen3-30B (GSM8K), lr 1e-4"),
                                 ("adalberto_lr5e5", "adalberto com lr 5e-5"), ("adalberto_L2048", "adalberto com limite de 2.048 tokens"),
                                 ("selfdist", "selfdist: traços do próprio Lumi com prefill em português"), ("adalberto_dora", "adalberto com DoRA"),
@@ -26,7 +27,8 @@ RUNS = [
                                 ("qwen_mix_p", "qwen_mix_p: dados do adalberto + 1.810 traços de múltipla escolha do Qwen (entrega parcial do pacote 4)"),
                                 ("qwen_mix", "qwen_mix: dados do adalberto + 5.055 traços de múltipla escolha do Qwen (pacote 4 completo)"),
                                 ("qwen_mix_short", "qwen_mix_short: dados do adalberto + 2.221 traços de múltipla escolha do Qwen de até 1.024 tokens"),
-                                ("selfdist_min", "selfdist_min: 3.000 traços de matemática do próprio Lumi em português, ~94 passos")]),
+                                ("selfdist_min", "selfdist_min: 3.000 traços de matemática do próprio Lumi em português, ~94 passos"),
+                                ("selfdist_300", "selfdist_300: 300 traços de matemática do próprio Lumi em português, ~10 passos")]),
     ("SFT: dados do Nemotron 30B da Thor, traduzidos (entrega parcial: 4.927 problemas com raciocínio + 5.544 linhas sem raciocínio do GigaVerbo)",
      [("adalberto", "**adalberto: traços do Qwen3-30B (referência)**"), ("thor_pt", "thor_pt: raciocínio do Nemotron 30B traduzido para o português"),
       ("thor_en", "thor_en: os mesmos problemas, raciocínio original em inglês"),
@@ -53,7 +55,11 @@ RUNS = [
                                     ("gspo1_s1", "gspo1_s1: receita do gspo1, semente 1, 4 ciclos"),
                                     ("gspo1_eps3x", "gspo1_eps3x: receita do gspo1 com o corte do GSPO 3x maior, 4 ciclos"),
                                     ("gspo1_same", "gspo1_same: receita do gspo1 com as log-probabilidades antigas na composição do treino, 4 ciclos"),
-                                    ("gspo_qwen_mix", "gspo_qwen_mix: receita do gspo1 a partir do SFT qwen_mix (adalberto + múltipla escolha do Qwen), 4 ciclos")]),
+                                    ("gspo_qwen_mix", "gspo_qwen_mix: receita do gspo1 a partir do SFT qwen_mix (adalberto + múltipla escolha do Qwen), 4 ciclos"),
+                                    ("gspo1_soup2", "gspo1_soup2: média dos pesos do gspo1 (ciclo 4) e do gspo1_s1"),
+                                    ("gspo1_soup3", "gspo1_soup3: média dos pesos do gspo1 (ciclo 4), do gspo1_s1 e do gspo1_T06"),
+                                    ("gspo1_antidoom_r1", "gspo1_antidoom_r1: gspo1 (8 ciclos) + fase anti-laço (preferência no token que inicia o laço)"),
+                                    ("gspo_thor_antidoom_r2", "gspo_thor_antidoom_r2: gspo_thor (8 ciclos, a partir do thor_pt) + fase anti-laço")]),
 ]
 LAYERS = [("adalberto", "adaptador completo (71 módulos)"), ("adalberto_L00_20", "só camadas 0 a 20"), ("adalberto_L21_41", "só camadas 21 a 41"),
           ("adalberto_noMLP", "sem MLP (Mamba e atenção)"), ("adalberto_MLPonly", "só MLP (do adaptador completo, sem retreinar)")]
