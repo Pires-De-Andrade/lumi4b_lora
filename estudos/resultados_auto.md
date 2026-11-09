@@ -86,6 +86,7 @@ Validação limpa, nota **estrita**, decodificação gulosa, 4.096 tokens. GSM8K
 | gspo1_soup2: média dos pesos do gspo1 (ciclo 4) e do gspo1_s1 (`gspo1_soup2`) | 84,6 (+3,0) ▲ | 79,9 (+2,7) | 63,6 (-6,0) ▼ | 59,2 (-4,7) | 88,1 / 98,2 / 13,0 / 1100 | 12 |
 | gspo1_soup3: média dos pesos do gspo1 (ciclo 4), do gspo1_s1 e do gspo1_T06 (`gspo1_soup3`) | 84,9 (+3,3) ▲ | 79,0 (+1,8) | 64,7 (-4,9) ▼ | 57,1 (-6,8) ▼ | 88,8 / 97,7 / 12,2 / 1147 | 12 |
 | gspo1_antidoom_r1: gspo1 (8 ciclos) + fase anti-laço (preferência no token que inicia o laço) (`gspo1_antidoom_r1`) | – | – | – | – | – | – |
+| gspo_thor_antidoom_r2: gspo_thor (8 ciclos, a partir do thor_pt) + fase anti-laço (`gspo_thor_antidoom_r2`) | – | – | – | – | – | – |
 
 ## Triagem por camadas (adaptador `adalberto` fundido só em parte; só com thinking)
 

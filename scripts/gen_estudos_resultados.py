@@ -58,8 +58,10 @@ RUNS = [
                                     ("gspo_qwen_mix", "gspo_qwen_mix: receita do gspo1 a partir do SFT qwen_mix (adalberto + múltipla escolha do Qwen), 4 ciclos"),
                                     ("gspo1_soup2", "gspo1_soup2: média dos pesos do gspo1 (ciclo 4) e do gspo1_s1"),
                                     ("gspo1_soup3", "gspo1_soup3: média dos pesos do gspo1 (ciclo 4), do gspo1_s1 e do gspo1_T06"),
-                                    ("gspo1_antidoom_r1", "gspo1_antidoom_r1: gspo1 (8 ciclos) + fase anti-laço (preferência no token que inicia o laço)"),
-                                    ("gspo_thor_antidoom_r2", "gspo_thor_antidoom_r2: gspo_thor (8 ciclos, a partir do thor_pt) + fase anti-laço")]),
+                                    ("thor_pt_antidoom", "thor_pt_antidoom: thor_pt + fase anti-laço (receita oficial do Antidoom)"),
+                                    ("gspo_thor_antidoom", "gspo_thor_antidoom: gspo_thor (8 ciclos) + fase anti-laço (receita oficial)"),
+                                    ("thor_pt_antidoom_of", "thor_pt_antidoom_of: thor_pt + fase anti-laço com o treinador do repositório oficial"),
+                                    ("gspo1_antidoom", "gspo1_antidoom: gspo1 (8 ciclos) + fase anti-laço (receita oficial)")]),
 ]
 LAYERS = [("adalberto", "adaptador completo (71 módulos)"), ("adalberto_L00_20", "só camadas 0 a 20"), ("adalberto_L21_41", "só camadas 21 a 41"),
           ("adalberto_noMLP", "sem MLP (Mamba e atenção)"), ("adalberto_MLPonly", "só MLP (do adaptador completo, sem retreinar)")]

@@ -169,6 +169,27 @@ Todas as rodadas de RL das etapas 2 a 6 usam a receita e os prompts do `gspo1_c4
 **Regra de decisão para os RLs seguintes** (a mesma da versão 7): RL a partir do `qwen_mix_short` se fechar ≥ 87% com múltipla escolha ≥ 62%; RL a partir do `selfdist_min` ou do `selfdist_300` se o acerto entre os que fecham for ≥ 78% e o traço em português ≥ 90%. **Proposta ainda sem decisão:** fase anti-laço (H57) sobre o melhor candidato.
 
 
+## Fila da versão 12 (09/11 18:45): receita oficial do Antidoom, por ganho esperado
+
+**Decisões de 09/11:** (1) usar a receita do repositório oficial do Antidoom ([Liquid4All/antidoom](https://github.com/Liquid4All/antidoom), Apache-2.0, clonado em `../antidoom_oficial`, commit `bd6a126`) no lugar da versão própria, que tinha diferenças de método, entre elas o `chosen_win` medido pelo melhor escolhido (o oficial mede a fração dos escolhidos acima do rejeitado), o que pararia o treino cedo demais ([discovery §20.61](../discovery.md)); (2) testar a fase também no `thor_pt`, o SFT com mais laço; (3) rodar um braço com o treinador do próprio repositório, para separar efeito do método de efeito da nossa portagem; (4) ordenar a fila pelo ganho esperado; (5) a suíte de teste roda um único candidato, escolhido por regra escrita antes dos resultados (`scripts/pick_suite_candidate.py`), com o `gspo1` como padrão.
+
+**Mudança:** a versão 11 foi encerrada antes de começar (só esperava a mineração do `gspo1`); a versão 12 (`scripts/run_noite12_chain.sh`) assumiu às 18:52, quando a mineração do `gspo1` acabou (136 eventos em 10.000 prompts). Enquanto o código da receita oficial não fica pronto (arquivo `runs/jobs/antidoom_v2.pronto`), a GPU roda os SFTs de teste.
+
+| Ordem | Etapa | Por que nessa posição |
+| --- | --- | --- |
+| 1 | SFTs `qwen_mix_short`, `selfdist_min`, `selfdist_300`, um por vez, até o código ficar pronto | ocupam a GPU sem depender do código novo |
+| 2 | Teste de fumaça do treino na receita oficial | o treino novo ainda não rodou na GPU |
+| 3 | `thor_pt_antidoom` (H59): referência de laço, mineração em 10.000 prompts, treino, fusão, avaliação, laço depois | maior teto (54,3% → até ~71,7%) e o regime do método (33% de laço) |
+| 4 | `gspo_thor_antidoom` (H58), mineração em 8.000 prompts de múltipla escolha | candidato direto (67,0% → até ~70,6%) |
+| 5 | `thor_pt_antidoom_of`: os mesmos eventos com o treinador do repositório oficial (só se `runs/jobs/antidoom_trainer_oficial.pronto` existir) | conferência da portagem |
+| 6 | SFTs de teste que sobrarem | diagnóstico (H53, H54) |
+| 7 | `gspo1_antidoom` (H57) | teto de ~+0,6 ponto |
+| 8 | Suíte de teste de um candidato (regra; padrão `gspo1`) | a última, uma vez |
+
+**Regras escritas antes dos resultados:** H59 e H58 em `estudos/07`; a regra da suíte em `scripts/pick_suite_candidate.py` (múltipla escolha ≥ 69,6%, fecha ≥ 93%, GSM8K limpo ≥ 83% e traço em português ≥ 90% na validação; vence a maior múltipla escolha; senão o `gspo1`).
+
+**Testes antes do portão (CPU, sem tocar na GPU):** 19 testes unitários (8 de equivalência contra o código oficial); treino da receita oficial e fusão com um NemotronH minúsculo na CPU (cabeça manual em FP32 contra o modelo completo: diferença máxima de 0,002 logit; só os módulos-alvo mudam na fusão). Esses testes acharam dois problemas que teriam derrubado a fila: o tronco do NemotronH nativo do Transformers 5 se chama `model`, não `backbone`, e o PEFT recusa LoRA no `out_proj` do Mamba.
+
 ## Fila da versão 11 (09/11 18:28): fase anti-laço primeiro na família da Thor
 
 **Motivo:** a pergunta do usuário (aplicar o Antidoom nas variantes da Thor) foi testada nos dados antes de gastar GPU. Na validação de múltipla escolha com thinking, o detector de laço exato (o mesmo da mineração) pega 129 das 131 respostas que não fecham no `thor_pt`, 82 das 95 no `thor_en`, 44 das 47 no `gspo_thor` e 68 das 74 no `gspo_thor_e1`, contra 4 das 26 no `gspo1` ([discovery §20.59](../discovery.md)). No `gspo1` o não fechamento é raciocínio longo e indeciso, que a fase não trata; na Thor é laço. Além disso, o `thor_pt` iguala o Lumi nos itens em que os dois fecham.

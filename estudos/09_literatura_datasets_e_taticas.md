@@ -52,4 +52,4 @@ Levantamento feito para decidir o que testar depois do `qwen_mix` e do `gspo_qwe
 | H55: sopas de pesos `gspo1_soup2` e `gspo1_soup3` | na fila (`noite8`) |
 | H56: Lumi sem adaptador com o começo forçado em português (`base_ptprefill`) | **já medido em 07/11** (E0): 61,3% em múlt. escolha contra 69,6%; os SFTs ficam no mesmo nível |
 | H54b: `selfdist_300` (300 traços, ~10 passos) | na fila (`noite8`) |
-| H57: fase anti-laço (preferência no token que inicia o laço) sobre o `gspo1` de 8 ciclos | **implementada e na fila** (`noite10`): `scripts/make_antidoom_prompts.py`, `antidoom_mine.py`, `antidoom_train.py`, `src/lumi_ft/train/antidoom.py` (11 testes) |
+| H57 e H58: fase anti-laço (preferência no token que inicia o laço) sobre o `gspo1` de 8 ciclos (H57) e o `gspo_thor` (H58) | **implementada e na fila** (`noite11`; versão própria, diferenças para o repositório oficial em [discovery §20.60](../discovery.md)): `scripts/make_antidoom_prompts.py`, `antidoom_mine.py`, `antidoom_train.py`, `src/lumi_ft/train/antidoom.py` (11 testes) |
