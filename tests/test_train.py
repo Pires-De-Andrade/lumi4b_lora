@@ -156,3 +156,35 @@ def test_load_rows_filters(parquet_path):
 
 def test_default_budget_per_arm():
     assert S.default_budget("lora") == 2048 and S.default_budget("dora") == 1024
+
+
+def test_dft_loss_weights_each_token_by_its_probability_without_gradient_through_the_weight():
+    """DFT: -sg(p) * log p por token; o padrão (nll) não muda."""
+    torch.manual_seed(2)
+    logits = torch.randn(2, 6, 9, requires_grad=True)
+    labels = torch.randint(0, 9, (2, 6))
+    labels[:, :2] = -100
+    shifted = torch.nn.functional.pad(labels, (0, 1), value=-100)[:, 1:]
+    lp = torch.log_softmax(logits.float(), -1)
+    mask = shifted != -100
+    tok_lp = lp.gather(-1, shifted.clamp(min=0).unsqueeze(-1)).squeeze(-1)
+    ref = (-(tok_lp.exp().detach()) * tok_lp)[mask].sum()
+    got = S.batch_loss_sum(logits, labels, "dft")
+    assert torch.allclose(got, ref, atol=1e-5)
+    got.backward()
+    g_dft = logits.grad.clone()
+    logits.grad = None
+    S.batch_loss_sum(logits, labels, "nll").backward()
+    g_nll = logits.grad
+    assert not torch.allclose(g_dft, g_nll)  # a perda é outra...
+    assert torch.allclose(S.batch_loss_sum(logits, labels), S.batch_loss_sum(logits, labels, "nll"))  # ...e o padrão é a nll
+    # o gradiente do DFT é o da nll com cada token multiplicado por p (a mesma direção, só ponderada)
+    p = tok_lp.exp().detach()
+    expected = torch.autograd.grad((-(p * tok_lp))[mask].sum(), logits)[0]
+    assert torch.allclose(g_dft, expected, atol=1e-5)
+
+
+def test_batch_loss_sum_rejects_unknown_loss_type():
+    import pytest
+    with pytest.raises(ValueError):
+        S.batch_loss_sum(torch.randn(1, 4, 5), torch.randint(0, 5, (1, 4)), "foo")

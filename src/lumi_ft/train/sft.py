@@ -87,12 +87,22 @@ def n_targets(rows: list[dict], idxs: list[int]) -> int:
     return sum(max(0, r["loss_end"] - r["n_prompt"]) for r in (rows[i] for i in idxs))
 
 
-def batch_loss_sum(logits, labels):
-    """Soma da cross-entropy sobre os tokens-alvo, sem copiar os logits (desloca os labels, não os logits)."""
+def batch_loss_sum(logits, labels, loss_type: str = "nll"):
+    """Soma da cross-entropy sobre os tokens-alvo, sem copiar os logits (desloca os labels, não os logits).
+
+    `loss_type="dft"` (Dynamic Fine-Tuning, o `loss_type="dft"` do SFTConfig do TRL): cada token pesa a própria probabilidade, sem gradiente
+    nesse peso: `-sg(p) * log p`. O padrão `nll` é a cross-entropy de sempre e não muda nenhuma rodada antiga."""
+    import torch
     import torch.nn.functional as F
 
     shifted = F.pad(labels, (0, 1), value=-100)[:, 1:]
-    return F.cross_entropy(logits.reshape(-1, logits.shape[-1]).float(), shifted.reshape(-1), ignore_index=-100, reduction="sum")
+    flat, tgt = logits.reshape(-1, logits.shape[-1]).float(), shifted.reshape(-1)
+    if loss_type == "nll":
+        return F.cross_entropy(flat, tgt, ignore_index=-100, reduction="sum")
+    if loss_type == "dft":
+        nll = F.cross_entropy(flat, tgt, ignore_index=-100, reduction="none")  # 0 nos tokens ignorados
+        return (torch.exp(-nll).detach() * nll).sum()
+    raise ValueError(f"loss_type desconhecido: {loss_type!r} (nll ou dft)")
 
 
 def lr_at(step: int, total: int, base_lr: float, warmup_frac: float = 0.03) -> float:
@@ -133,6 +143,7 @@ class TrainConfig:
     rank_pattern: str = ""  # JSON {regex do final do nome do módulo: rank}, ex.: '{"in_proj": 4, "up_proj|down_proj": 32}'
     alpha_pattern: str = ""  # JSON idem para alpha (vazio = mantém a escala alpha/r de cada módulo)
     lr_mult: str = ""  # JSON {regex do nome do parâmetro: multiplicador do lr}; vale o primeiro que casar, senão 1
+    loss: str = "nll"  # nll | dft (a perda de validação continua sendo a nll)
 
 
 def default_budget(arm: str) -> int:
@@ -242,7 +253,7 @@ def train(cfg: TrainConfig) -> dict:
                 ids, mask, labels = (b[k].cuda(non_blocking=True) for k in ("input_ids", "attention_mask", "labels"))
                 with torch.autocast("cuda", dtype=torch.bfloat16):
                     logits = pm(input_ids=ids, attention_mask=mask).logits
-                loss = batch_loss_sum(logits, labels) / N
+                loss = batch_loss_sum(logits, labels, cfg.loss) / N
                 loss.backward()
                 loss_total += float(loss.detach())
                 padded += ids.numel()

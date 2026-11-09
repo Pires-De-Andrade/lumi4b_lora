@@ -21,6 +21,7 @@ Convenções: rode sempre com `source env.sh`; tarefas longas com `scripts/detac
 | `build_dataset.py` | Fase 1: `data/train.parquet`, `valid.parquet` e `reports/data_manifest.json` |
 | `build_validation.py`, `clean_validation.py` | Conjuntos de validação (A-10) e o subconjunto limpo do GSM8K (676 itens, `data/val_gsm8k_clean_ids.json`) |
 | `build_teacher_dataset.py` | Parquet de SFT a partir de registros de um professor |
+| `concat_parquets.py` | Junta parquets de SFT de mesmo esquema (confere esquema e `id` únicos) e grava o manifest |
 | `prepare_adalberto.py` | Dataset `adalberto` (Qwen3-30B, GSM8K em português) |
 | `prepare_mot_science.py`, `prepare_nemotron_pt.py` | Questões de ciência (Mixture-of-Thoughts e Nemotron-SFT-Multilingual) |
 | `prepare_thor.py`, `prepare_thor_translated.py`, `filter_translated.py` | Entregas da Thor viram registros de treino; descontaminação por 8-grama |
@@ -64,6 +65,14 @@ Fluxo de um ciclo (`run_grpo.sh`): fundir o adaptador → `grpo_rollout.py` (vLL
 | `run_gold_chain.sh` | `gspo_gold4k` (limite 4.096; parou pela regra no ciclo 4) | histórico |
 | `run_thor4k_chain.sh` | RL a partir do `thor_pt` com 4.096 (**cancelada** antes de rodar) | histórico |
 | `run_gold2048_resume.sh` | Retoma o `gspo_gold` (2.048) até o ciclo 4 e avalia | **em execução** |
+| `run_noite4_chain.sh` | Fila da noite (v4): RLs de teste da receita do `gspo1` (T nos logits, semente 1, corte 3×, log-probabilidades antigas na composição do treino, limite 4.096), suíte do Lumi como preenchimento até o pacote 4 chegar, trabalho com o pacote 4 e suíte até o fim | congelada em 09/11 01:22 (substituída pela `run_noite5_chain.sh`) |
+| `run_noite5_chain.sh` | Fila da noite (v5): espera o `gspo1_s1`, teste parcial `qwen_mix_p` com a entrega parcial do pacote 4, diagnósticos de RL (`gspo1_eps3x`, `gspo1_same`, `gspo1_4k`), pacote 4 final e suíte do Lumi por último | encerrada em 09/11 13:54 (queda da máquina), substituída pela `run_noite6_chain.sh` |
+| `run_noite6_chain.sh` | Fila (v6): avaliação do SFT parcial `qwen_mix_p` sem RL, pacote 4 completo (`qwen_mix` e `gspo_qwen_mix`), diagnósticos de RL (`gspo1_eps3x`, `gspo1_same`, `gspo1_4k`) e suíte do Lumi por último | **em execução** |
+| `run_qwen_mix.sh` | Trabalho com o pacote 4 da Thor: extrai, confere, converte (`prepare_thor4.py`), filtra contaminação, monta `data/<NOME>.parquet` (os dados do `adalberto` + a múltipla escolha do pacote, junto por `concat_parquets.py`), SFT `qwen_mix` e RL `gspo_qwen_mix`; chamado pela `run_noite4_chain.sh` quando `data/thor4/thor4_out.tar.gz` chega | pronto, ensaiado só nas partes de CPU |
+| `prepare_thor4.py` | Converte o `kept.jsonl` do pacote 4 em registros de treino (`think.jsonl`) | ativo |
+| `run_noite3_chain.sh` | Fila da noite (v3, substituída pela v4): RL do `thor_pt_e1`, diagnóstico, SFT com perda DFT | histórico |
+| `diag_logprob.py` | Diagnóstico de log-probabilidades: vLLM x treinador, ruído do corte do GSPO, cabeça FP32, adaptador desligado = Lumi (dois estágios, `vllm` e `hf`); rodado em 08/11, relatório em `runs/diag/lp_report.json` | ativo |
+| `run_noite_chain.sh` | Fila da noite v2 (substituída pela v3): SFT `thor_pt_e1`, RL `gspo_thor_e1`, RL do ramo A/B/C (hoje B) e a suíte do Lumi (`--decide NOME` só imprime o ramo) | histórico |
 
 ## Pacotes da Thor (geração de dados)
 

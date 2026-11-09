@@ -7,6 +7,7 @@ resposta: ids do prompt e da resposta (exatos, sem retokenizar), recompensa, van
 """
 import argparse
 import json
+import os
 import sys
 import time
 from collections import Counter
@@ -29,7 +30,7 @@ def main() -> None:
     ap.add_argument("--top-p", type=float, default=1.0)
     ap.add_argument("--max-new", type=int, default=2048)
     ap.add_argument("--adv", default="std", choices=["std", "mean"])
-    ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--seed", type=int, default=int(os.environ.get("GRPO_SEED", "0")), help="padrão: variável GRPO_SEED (ou 0)")
     ap.add_argument("--max-seqs", type=int, default=128)
     ap.add_argument("--mem", type=float, default=0.88)
     ap.add_argument("--out", required=True)

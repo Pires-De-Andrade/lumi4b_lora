@@ -10,6 +10,7 @@ por minibatch de `--mb-seqs` respostas, uma passada pelos dados. AdamW com o est
 import argparse
 import json
 import math
+import os
 import random
 import sys
 import time
@@ -33,15 +34,22 @@ def main() -> int:
     ap.add_argument("--ckpt", default="full", choices=["full", "none"],
                     help="gradient checkpointing (padrão: full). Sem ele, uma só resposta de ~2.350 tokens estoura os 24 GiB no backward (OOM no ciclo 0 do grpo1)")
     ap.add_argument("--ratio", default="token", choices=["token", "seq"], help="razão de importância por token (GRPO/PPO) ou da sequência (GSPO)")
-    ap.add_argument("--eps-low", type=float, default=None, help="padrão: 0,2 (token) ou 3e-4 (seq)")
-    ap.add_argument("--eps-high", type=float, default=None, help="padrão: 0,28 (token) ou 4e-4 (seq)")
+    ap.add_argument("--eps-low", type=float, default=float(os.environ["GRPO_EPS_LOW"]) if "GRPO_EPS_LOW" in os.environ else None,
+                    help="padrão: variável GRPO_EPS_LOW; senão 0,2 (token) ou 3e-4 (seq)")
+    ap.add_argument("--eps-high", type=float, default=float(os.environ["GRPO_EPS_HIGH"]) if "GRPO_EPS_HIGH" in os.environ else None,
+                    help="padrão: variável GRPO_EPS_HIGH; senão 0,28 (token) ou 4e-4 (seq)")
+    ap.add_argument("--old-same-batches", action="store_true", default=os.environ.get("GRPO_OLD_SAME_BATCHES", "0") == "1",
+                    help="calcula as log-probabilidades antigas nos mesmos micro-batches que o treino vai usar (mesma composição e padding), "
+                         "para o ruído numérico do primeiro passo sumir; padrão: variável GRPO_OLD_SAME_BATCHES=1 (ou desligado = como antes)")
     ap.add_argument("--entropy-only", action="store_true", help="só mede a entropia do modelo nas respostas (sem treinar) e grava <out>/entropy.json")
     ap.add_argument("--max-samples", type=int, default=0, help="com --entropy-only: usa só N respostas (sorteio fixo pela semente)")
     ap.add_argument("--clip", type=float, default=1.0)
     ap.add_argument("--positives-only", action="store_true",
                     help="RFT/RAFT: treina só nas respostas acima da média do grupo (vantagem 1 e razão do PPO), sem gradiente negativo")
     ap.add_argument("--mask-truncated", action="store_true", help="não treina nas respostas truncadas (padrão: treina, com vantagem negativa)")
-    ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--seed", type=int, default=int(os.environ.get("GRPO_SEED", "0")), help="padrão: variável GRPO_SEED (ou 0)")
+    ap.add_argument("--logit-temp", type=float, default=float(os.environ.get("GRPO_LOGIT_TEMP", "1.0")),
+                    help="divide os logits por T no cálculo das log-probabilidades (use a temperatura da amostragem); padrão: variável GRPO_LOGIT_TEMP (ou 1,0 = como antes)")
     a = ap.parse_args()
     if a.eps_low is None:
         a.eps_low = 0.2 if a.ratio == "token" else 3e-4
@@ -68,7 +76,7 @@ def main() -> int:
              "loss_end": len(s["prompt_ids"]) + len(s["completion_ids"]), "kind": s["kind"]} for s in use]
     adv = [1.0 if a.positives_only else s["advantage"] for s in use]
     log = out / "train_log.jsonl"
-    info = {"samples": len(samples), "used": len(use), "reward_mean_all": round(sum(s["reward"] for s in samples) / max(1, len(samples)), 4)}
+    info = {"logit_temp": a.logit_temp, "seed": a.seed, "eps": [a.eps_low, a.eps_high], "old_same_batches": a.old_same_batches, "samples": len(samples), "used": len(use), "reward_mean_all": round(sum(s["reward"] for s in samples) / max(1, len(samples)), 4)}
     print(info, flush=True)
     if not use:  # nenhum grupo com sinal: o adaptador fica como está
         import shutil
@@ -101,7 +109,7 @@ def main() -> int:
         ids, mask = b["input_ids"].cuda(non_blocking=True), b["attention_mask"].cuda(non_blocking=True)
         with torch.autocast("cuda", dtype=torch.bfloat16):
             logits = pm(input_ids=ids, attention_mask=mask).logits
-        lps = [R.completion_logprobs(logits[k], ids[k], rows[i]["n_prompt"], rows[i]["loss_end"]) for k, i in enumerate(mb)]
+        lps = [R.completion_logprobs(logits[k], ids[k], rows[i]["n_prompt"], rows[i]["loss_end"], a.logit_temp) for k, i in enumerate(mb)]
         if not entropy:
             return lps
         ents = [R.completion_entropy(logits[k], rows[i]["n_prompt"], rows[i]["loss_end"]) for k, i in enumerate(mb)]
@@ -113,7 +121,10 @@ def main() -> int:
     ent_sum, ent_n = {}, {}
     pm.eval()
     with torch.no_grad():
-        for mb in sft.micro_batches(rows, list(range(len(rows))), a.token_budget):
+        mini = R.minibatch_indices(len(rows), a.mb_seqs, a.seed)
+        old_groups = ([mb for idxs in mini for mb in sft.micro_batches(rows, idxs, a.token_budget)] if a.old_same_batches
+                      else sft.micro_batches(rows, list(range(len(rows))), a.token_budget))
+        for mb in old_groups:
             lps, ents = forward_lp(mb, entropy=True)
             for i, lp, en in zip(mb, lps, ents):
                 old[i] = lp.cpu()
@@ -133,12 +144,9 @@ def main() -> int:
         return 0
 
     # 2) um passo do otimizador por minibatch
-    order = list(range(len(rows)))
-    random.Random(a.seed).shuffle(order)
     t1, steps, clipped_all, ratio_all, n_all = time.time(), 0, 0.0, 0.0, 0
     tot, first_abs_log_s = Counter(), None  # diagnóstico do corte (só registro; a perda não muda)
-    for s0 in range(0, len(order), a.mb_seqs):
-        idxs = order[s0: s0 + a.mb_seqs]
+    for idxs in mini:
         N = sum(rows[i]["loss_end"] - rows[i]["n_prompt"] for i in idxs)
         loss_total = 0.0
         mbs = Counter()  # contadores deste passo do otimizador

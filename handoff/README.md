@@ -9,6 +9,8 @@ Pacotes de geração de dados para a Jetson Thor. A Thor **só gera**; treino e 
 | 3 | `thor3/` | Tradução das questões e dos traços, mais questões de outros domínios | Nemotron 30B | 12.000 questões traduzidas entregues; blocos 3 e 4 de traços **cancelados** em 08/11 | sim |
 | 4 | `thor4/` | Traços de múltipla escolha **em português** (9.957 questões com gabarito) | Qwen3-30B-A3B-Thinking, começo do raciocínio forçado em português | pacote pronto e validado; **aguarda a Thor** | **não** (decisão de 08/11) |
 
+**Pacote 3, entrega 1 (08/11, 20:38):** `thor3_out.tar.gz`, sha256 `768372c52d01112e85fee14eaaf5b353ae0fa577a31795b7883a4ac513158e64`, extraído em `data/thor3_e1/` (não versionado). A Thor traduziu com uma **cópia modificada** do `translate_thor.py` (prefill na resposta, limpeza de espaços especiais, reserva frase a frase, processamento contínuo); o diff está em `NOTAS.md` da entrega e o arquivo reconstruído, em `handoff/thor3/translate_thor_v2.py` (o diff aplica sem rejeições no original). A versão que gerou os dados é a anterior ao teste A/B das 00:38: para reproduzi-la, rode com `T3_SEM_2A_TENTATIVA=1`. Os limites de aceitação (`check_piece`) são os do original.
+
 Regras dos pacotes: a Thor não altera scripts nem parâmetros de geração, não publica nada no Hugging Face, roda tudo em `tmux` e anota divergências em `out/NOTAS.md`. Um servidor de modelo por vez (Qwen e Nemotron não cabem juntos nos ~122 GiB).
 
 Arquivos pesados ficam ignorados pelo Git (`*/data/`, `*/out/`, `*/.venv-gen/`, `*.tar.gz`). O pacote 4 inteiro e o `thor4_pacote.sha256` também. Como conferir um pacote recebido: `sha256sum -c` no arquivo `.sha256` ao lado do `.tar.gz`.

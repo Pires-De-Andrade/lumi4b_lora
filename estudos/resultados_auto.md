@@ -19,6 +19,8 @@ Validação limpa, nota **estrita**, decodificação gulosa, 4.096 tokens. GSM8K
 | adalberto com limite de 2.048 tokens · 17,1 M param. (`adalberto_L2048`) | 82,2 (+0,6) | 81,7 (+4,4) ▲ | 64,2 (-5,5) ▼ | 55,3 (-8,6) ▼ | 85,5 / 99,4 / 15,1 / 1292 | 14 |
 | selfdist: traços do próprio Lumi com prefill em português · 17,1 M param. (`selfdist`) | 78,1 (-3,6) ▼ | 77,5 (+0,3) | 57,9 (-11,7) ▼ | 63,4 (-0,5) | 79,2 / 93,8 / 19,7 / 475 | 9 |
 | adalberto com DoRA · 17,7 M param. (`adalberto_dora`) | 84,0 (+2,4) | 79,1 (+1,9) | 62,6 (-7,0) ▼ | 57,7 (-6,2) ▼ | 87,5 / 99,4 / 12,7 / 1146 | 12 |
+| adalberto com a perda DFT (`--loss dft`) · 17,1 M param. (`adalberto_dft`) | 83,3 (+1,6) | 80,5 (+3,3) ▲ | 61,3 (-8,3) ▼ | 63,1 (-0,8) | 77,7 / 0,7 / 7,8 / 838 | 12 |
+| qwen_mix: matemática do Qwen + múltipla escolha do Qwen (pacote 4) + linhas sem raciocínio do GigaVerbo (`qwen_mix`) | – | – | – | – | – | – |
 
 ## SFT: dados do Nemotron 30B da Thor, traduzidos (entrega parcial: 4.927 problemas com raciocínio + 5.544 linhas sem raciocínio do GigaVerbo)
 
@@ -29,6 +31,7 @@ Validação limpa, nota **estrita**, decodificação gulosa, 4.096 tokens. GSM8K
 | thor_en: os mesmos problemas, raciocínio original em inglês · 17,1 M param. (`thor_en`) | 83,1 (+1,5) | 65,7 (-11,5) ▼ | 60,3 (-9,4) ▼ | 56,1 (-7,8) ▼ | 75,3 / 0,0 / 24,7 / 655 | 10 |
 | thor_pt_short: o thor_pt só com raciocínio de até 600 tokens (3.738 dos 4.927 problemas) · 17,1 M param. (`thor_pt_short`) | 78,8 (-2,8) ▼ | 73,1 (-4,1) ▼ | 57,4 (-12,2) ▼ | 63,1 (-0,8) | 73,8 / 99,3 / 26,2 / 587 | 10 |
 | thor_pt_math: só a matemática do mesmo professor (sem múltipla escolha), em português (`thor_pt_math`) | – | – | – | – | – | – |
+| thor_pt_e1: entrega 1 do pacote 3 (9.850 com raciocínio, 5.426 de múltipla escolha) + 5.544 sem raciocínio, mesma receita do thor_pt · 17,1 M param. (`thor_pt_e1`) | 76,9 (-4,7) ▼ | 71,6 (-5,6) ▼ | 51,4 (-18,2) ▼ | 61,8 (-2,1) | 63,4 / 99,2 / 36,6 / 802 | 12 |
 
 ## SFT: tamanho do efeito do adaptador
 
@@ -65,6 +68,16 @@ Validação limpa, nota **estrita**, decodificação gulosa, 4.096 tokens. GSM8K
 | gspo_thor: 4 ciclos a partir do `thor_pt` (só thinking) (`gspo_thor_it4`) | 83,7 (+2,1) | – | 65,7 (-3,9) | – | 82,9 / 98,4 / 17,1 / 520 | 6 |
 | gspo_thor: 8 ciclos a partir do `thor_pt` (Nemotron 30B) (`gspo_thor`) | 82,5 (+0,9) | 78,7 (+1,5) | 67,0 (-2,6) | 60,0 (-3,9) | 87,8 / 97,9 / 12,2 / 534 | 7 |
 | gspo_gold4k: 4 ciclos, questões do gold, limite 4.096 (só thinking; parado pela regra do ciclo 4) (`gspo_gold4k_it4`) | 84,6 (+3,0) ▲ | – | 63,1 (-6,5) ▼ | – | 83,9 / 98,5 / 16,4 / 1250 | 9 |
+| gspo_gold: 4 ciclos, questões do gold, limite 2.048 (`gspo_gold_it4`) | 85,2 (+3,6) ▲ | 79,4 (+2,2) | 63,9 (-5,7) ▼ | 60,3 (-3,6) | 89,4 / 95,1 / 11,4 / 1167 | 12 |
+| gspo_gold: 8 ciclos, questões do gold, limite 2.048 (`gspo_gold`) | – | – | – | – | – | – |
+| gspo_gold_thor: 4 ciclos a partir do `thor_pt`, questões do gold, limite 2.048 (`gspo_gold_thor`) | – | – | – | – | – | – |
+| gspo1_4k: receita do gspo1 (questões antigas) com limite 4.096, 4 ciclos (`gspo1_4k`) | – | – | – | – | – | – |
+| gspo_thor_e1: 4 ciclos a partir do `thor_pt_e1`, questões antigas, 2.048 (`gspo_thor_e1`) | 84,3 (+2,7) ▲ | 76,3 (-0,9) | 62,1 (-7,5) ▼ | 64,9 (+1,0) | 80,8 / 99,4 / 19,2 / 612 | 9 |
+| gspo1_T06: receita do gspo1 com os logits do treinador / 0,6, semente 0, 4 ciclos (`gspo1_T06`) | 84,0 (+2,4) | 80,6 (+3,4) ▲ | 63,6 (-6,0) ▼ | 59,7 (-4,2) | 87,3 / 98,5 / 12,7 / 1027 | 12 |
+| gspo1_s1: receita do gspo1, semente 1, 4 ciclos (`gspo1_s1`) | 82,5 (+0,9) | 80,2 (+3,0) ▲ | 64,4 (-5,2) ▼ | 58,7 (-5,2) ▼ | 87,8 / 97,9 / 13,0 / 1222 | 13 |
+| gspo1_eps3x: receita do gspo1 com o corte do GSPO 3x maior, 4 ciclos (`gspo1_eps3x`) | – | – | – | – | – | – |
+| gspo1_same: receita do gspo1 com as log-probabilidades antigas na composição do treino, 4 ciclos (`gspo1_same`) | – | – | – | – | – | – |
+| gspo_qwen_mix: receita do gspo1 a partir do SFT qwen_mix (matemática e múltipla escolha do Qwen), 4 ciclos (`gspo_qwen_mix`) | – | – | – | – | – | – |
 
 ## Triagem por camadas (adaptador `adalberto` fundido só em parte; só com thinking)
 

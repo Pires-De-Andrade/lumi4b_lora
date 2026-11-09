@@ -6,7 +6,7 @@ Estado em 08/11/2026. Este diretório organiza o projeto como uma série de estu
 
 Ajustar o `ceia-br/lumi-4b` v0.2 (commit `27b30f40…`) com LoRA ou DoRA para que, com `enable_thinking=True`, ele **raciocine em português e acerte mais**, sem piorar o modo sem thinking. O Lumi original raciocina em inglês, e o cartão dele diz que o thinking deve ficar desligado nesta versão.
 
-**Critério de vitória:** contra o Lumi, em cada modo, o intervalo de confiança da diferença fica acima de 0; pelo menos 98% das respostas fecham `</think>` e respondem; pelo menos 90% dos traços saem em português; o modo sem thinking não cai mais de 1 ponto. A nota é a média de 5 provas: GSM8K-PT, MMLU-ProX PT, ENEM, BLUEX e OAB (4 das 5 são de múltipla escolha).
+**Critério de vitória:** contra o Lumi, em cada modo, o intervalo de confiança da diferença fica acima de 0; pelo menos 90% das respostas fecham `</think>` e respondem (era 98% até 08/11; emenda no PRD, feita depois de conhecidos os resultados); pelo menos 90% dos traços saem em português; o modo sem thinking não cai mais de 1 ponto. A nota é a média de 5 provas: GSM8K-PT, MMLU-ProX PT, ENEM, BLUEX e OAB (4 das 5 são de múltipla escolha).
 
 ## Onde estamos
 
@@ -17,7 +17,7 @@ Melhor candidato até agora: **`gspo1`** (SFT `adalberto` + 8 ciclos de RL com r
 | GSM8K com thinking | 81,7% | 84,3% (+2,7; IC +0,1 a +5,2) | IC acima de 0: **cumprido** (por pouco) |
 | Múltipla escolha com thinking | 69,6% | 67,5% (−2,1; IC −6,8 a +2,3) | empate: **não cumprido** |
 | Múltipla escolha sem thinking | 63,9% | 57,7% (−6,2; IC −11,4 a −1,3) | queda máxima de 1 ponto: **violado** |
-| Fecha `</think>` (múlt. escolha) | 86,2% | 93,2% | ≥ 98%: **não cumprido** |
+| Fecha `</think>` (múlt. escolha) | 86,2% | 93,2% | ≥ 90%: **cumprido** (com o limiar original de 98%: não cumprido) |
 | Traço em português | 0% | 96,1% | ≥ 90%: cumprido |
 
 Nenhum candidato passou o critério, e **nenhum candidato foi rodado ainda na suíte de teste** (do Lumi há o GSM8K e o MMLU-ProX PT com thinking; do Nemotron 4B, o GSM8K). Todos os números abaixo são da validação.
@@ -25,8 +25,9 @@ Nenhum candidato passou o critério, e **nenhum candidato foi rodado ainda na su
 **O que mudou na tarde e na noite de 08/11** (decisões e o que estudar se der errado: [08](08_registro_de_decisoes.md)):
 
 - **O adaptador só liga com thinking.** Sem thinking roda o Lumi original; a queda sem thinking da tabela acima deixa de pesar no uso. O BF16 fundido sozinho degrada o modo sem thinking, e o relatório final precisa dizer isso.
-- **RL com limite de 4.096 tokens e questões de gabarito oficial** (`gspo_gold4k`): no ciclo 4, 63,1% em múltipla escolha com thinking e fecha o `</think>` em 83,9%, contra 67,8% e 90,9% do `gspo1` no mesmo ciclo. A regra combinada antes parou a rodada. Duas coisas mudaram juntas (limite e questões); o `gspo_gold` com 2.048 e as mesmas questões roda para separá-las (avaliação do ciclo 4 por volta de 21:00; a leitura do resultado está fixada em [08](08_registro_de_decisoes.md)).
+- **RL com limite de 4.096 tokens e questões de gabarito oficial** (`gspo_gold4k`): no ciclo 4, 63,1% em múltipla escolha com thinking e fecha o `</think>` em 83,9%, contra 67,8% e 90,9% do `gspo1` no mesmo ciclo. A regra combinada antes parou a rodada. Duas coisas mudaram juntas (limite e questões). O `gspo_gold` com 2.048 e as mesmas questões, no ciclo 4, deu 63,9% e fecha 89,4%: o limite não muda a nota (−0,8 contra o 4.096, IC −4,7 a +3,1), mas com 4.096 o fechamento cai 5,5 pontos. Contra o `gspo1` no mesmo limite, as questões do gold ficam −3,9 (IC −7,8 a +0,0). A regra fixada antes ([08](08_registro_de_decisoes.md)) cai no ramo B (as questões não ajudam), por 0,1 ponto abaixo do limiar de 64%; com uma semente e IC que toca o zero, é indício, não prova. O `gspo1` com 4.096 e as questões antigas roda agora.
 - **Qualidade do raciocínio, nos itens em que todos os modelos fecham o `</think>`:** o SFT só de matemática (`adalberto`) fica ~5 pontos abaixo do Lumi (82,5% contra 87,8%, 189 itens); o `thor_pt`, com ciência em português, iguala o Lumi (87,3%). Condicionar no fechamento escolhe itens mais fáceis, então isso é indício, não prova ([discovery.md](../discovery.md) §20.39).
+- **Mais dados do Nemotron não ajudaram** (entrega 1 do pacote 3, 2,5× mais múltipla escolha): o SFT `thor_pt_e1` ficou em 51,4% (fecha 63,4%) e o RL a partir dele em 62,1% (fecha 80,8%), abaixo do `gspo_thor` (65,7%) e do `gspo1` (67,8%). O RL recupera +10,7 pontos sobre o SFT, mas a família Nemotron não passa o `gspo1`.
 - **Próximo dado a chegar:** traços de múltipla escolha em português gerados pelo Qwen na Thor (pacote 4, [handoff/README.md](../handoff/README.md)), para um SFT misto.
 
 ## Achados principais

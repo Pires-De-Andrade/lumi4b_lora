@@ -176,12 +176,23 @@ def summarize_rollouts(samples: list[dict]) -> dict:
 
 
 # ---------------------------------------------------------------------------------- loss
-def completion_logprobs(logits, input_ids, n_prompt: int, n_total: int):
+def minibatch_indices(n: int, mb_seqs: int, seed: int) -> list[list[int]]:
+    """Os minibatches do otimizador: índices embaralhados pela semente e repartidos em blocos de `mb_seqs`.
+    A mesma partição serve para a passada das log-probabilidades antigas (`--old-same-batches`) e para o treino."""
+    order = list(range(n))
+    random.Random(seed).shuffle(order)
+    return [order[s0: s0 + mb_seqs] for s0 in range(0, n, mb_seqs)]
+
+
+def completion_logprobs(logits, input_ids, n_prompt: int, n_total: int, temperature: float = 1.0):
     """Log-probabilidade de cada token da resposta (posições n_prompt .. n_total-1) de UMA sequência.
-    `logits`: [L, V] da sequência (sem padding à direita contado além de n_total). Devolve tensor [n_total - n_prompt] em FP32."""
+    `logits`: [L, V] da sequência (sem padding à direita contado além de n_total). Devolve tensor [n_total - n_prompt] em FP32.
+    `temperature` != 1: log-probabilidade da distribuição amostrada (logits / T), a mesma do gerador; o padrão 1,0 não muda nada."""
     import torch
 
     lg = logits[n_prompt - 1: n_total - 1].float()
+    if temperature != 1.0:
+        lg = lg / temperature
     tgt = input_ids[n_prompt:n_total]
     return torch.log_softmax(lg, dim=-1).gather(-1, tgt.unsqueeze(-1)).squeeze(-1)
 

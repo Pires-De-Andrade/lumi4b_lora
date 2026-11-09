@@ -81,7 +81,7 @@ Incidente de processo: o treino do primeiro ciclo estourou a memória (22 GiB, u
 
 ## O que o RL ainda não responde
 
-Nenhuma rodada passa o critério do PRD (múltipla escolha com IC acima de 0 contra o Lumi, queda sem thinking de no máximo 1 ponto, 98% de fechamento). O RL melhora a forma e quase fecha a distância com thinking, mas não protege o modo sem thinking. Caminhos em [07_hipoteses_e_proximos_passos.md](07_hipoteses_e_proximos_passos.md): proteger o modo sem thinking no RL (perda de SFT sem thinking misturada), partir de um SFT melhor (traços do Nemotron 30B, adaptador só com MLP), e rodar os finalistas na suíte de teste.
+Nenhuma rodada passa o critério do PRD (múltipla escolha com IC acima de 0 contra o Lumi, queda sem thinking de no máximo 1 ponto, 90% de fechamento, antes 98%: emenda de 08/11 no PRD). O RL melhora a forma e quase fecha a distância com thinking, mas não protege o modo sem thinking. Caminhos em [07_hipoteses_e_proximos_passos.md](07_hipoteses_e_proximos_passos.md): proteger o modo sem thinking no RL (perda de SFT sem thinking misturada), partir de um SFT melhor (traços do Nemotron 30B, adaptador só com MLP), e rodar os finalistas na suíte de teste.
 
 ## RL a partir do SFT da Thor (`gspo_thor`, **feito**: empata com o `gspo1`, não passa o Lumi)
 
@@ -112,7 +112,7 @@ Nenhuma rodada passa o critério do PRD (múltipla escolha com IC acima de 0 con
 | **`gspo_thor`** | **82,5** (+0,9; IC −1,6 a +3,6) | **67,0** (−2,6; IC −7,0 a +1,6) | **87,8% / 12,2%** | **534** | 78,7 (+1,5) | 60,0 (−3,9; IC −8,3 a +0,5) |
 
 - **Contra o ponto de partida:** o RL tirou os laços e recuperou a nota. Múltipla escolha +12,7 (IC +8,6 a +16,9), GSM8K +4,7 (IC +2,5 a +7,1), truncação 34% → 12,2%. Isso apoia a parte fraca da H33 ("o RL desfaz os laços do `thor_pt`").
-- **Contra o Lumi:** não passa. A múltipla escolha com thinking fica 2,6 pontos abaixo (IC inclui 0), fecha `</think>` em 87,8% (o critério pede 98%) e o sem thinking perde 3,9 na múltipla escolha (o critério pede perda de no máximo 1). A parte forte da H33 ("passa o Lumi") **não foi apoiada**.
+- **Contra o Lumi:** não passa. A múltipla escolha com thinking fica 2,6 pontos abaixo (IC inclui 0), fecha `</think>` em 87,8% (o critério pede 90%; o original era 98%) e o sem thinking perde 3,9 na múltipla escolha (o critério pede perda de no máximo 1). A parte forte da H33 ("passa o Lumi") **não foi apoiada**.
 - **Contra o `gspo1`:** empate. Diferença de −0,5 na múltipla escolha (IC −4,7 a +3,6) e −1,8 no GSM8K (IC −4,1 a +0,6). Os traços do Nemotron não são melhores que os do Qwen como ponto de partida do RL para esta métrica.
 - **O que o `gspo_thor` tem de diferente:** o raciocínio fica curto (mediana de 534 tokens na múltipla escolha, contra 1.035 do `gspo1` e 490 do Lumi). Mesma nota com metade dos tokens. Cuidado: é a mediana de todas as respostas, não controlada pelas que terminam; não conclua mais que "mais barato por resposta".
 - **Leitura da tabela de previsões:** o resultado (fecha 87,8%, múltipla escolha 67,0%) cai entre as linhas 1 e 2, mais perto da 2 no espírito: os laços saem em boa parte, mas o RL não leva acima do Lumi, e o SFT do Nemotron não é melhor que o do Qwen para esta métrica. O guarda de `</think>` nunca disparou (0% em todos os ciclos).

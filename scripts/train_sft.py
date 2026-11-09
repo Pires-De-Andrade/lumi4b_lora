@@ -40,12 +40,13 @@ def main() -> int:
     ap.add_argument("--save-every", type=int, default=d.save_every)
     ap.add_argument("--log-every", type=int, default=d.log_every)
     ap.add_argument("--max-steps", type=int, default=0, help="para depois de N passos (depuração)")
+    ap.add_argument("--loss", choices=["nll", "dft"], default=d.loss, help="nll (padrão) ou dft (Dynamic Fine-Tuning: cada token pesa a própria probabilidade)")
     a = ap.parse_args()
     cfg = TrainConfig(arm=a.arm, r=a.r, lr=a.lr, epochs=a.epochs, eff_batch=a.eff_batch, token_budget=a.token_budget,
                       seed=a.seed, mix=a.mix, frac=a.frac, viab=a.viab, data=a.data, valid=a.valid, out=a.out,
                       save_every=a.save_every, log_every=a.log_every, max_steps=a.max_steps, targets=a.targets,
                       alpha=a.alpha, rslora=a.rslora, layers=a.layers, rank_pattern=a.rank_pattern,
-                      alpha_pattern=a.alpha_pattern, lr_mult=a.lr_mult)
+                      alpha_pattern=a.alpha_pattern, lr_mult=a.lr_mult, loss=a.loss)
     print(json.dumps(train(cfg), indent=1, default=str))
     print("EXIT_OK")
     return 0

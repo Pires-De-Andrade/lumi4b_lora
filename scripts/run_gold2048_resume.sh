@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Replanejamento de 08/11 (pedido do usuário, ~19:55), depois da regra de parada do ciclo 4 do `gspo_gold4k` (múlt. escolha 63,1%, fecha 83,9%):
+# Replanejamento de 08/11 (~19:55), depois da regra de parada do ciclo 4 do `gspo_gold4k` (múlt. escolha 63,1%, fecha 83,9%):
 # retoma o `gspo_gold` (limite de 2.048, mesmas questões do gold; ciclos 0 e 1 prontos desde 17:20-17:59) até o ciclo 4 e avalia. Compara direto com o
 # `gspo_gold4k` no ciclo 4 (só muda o limite de geração) e com o `gspo1_c4` (só mudam as questões). Receita idêntica à original, com --iters 4: o
 # final do script funde o adaptador depois de 4 atualizações e avalia a validação (equivale ao "modelo que entra na iteração 4").

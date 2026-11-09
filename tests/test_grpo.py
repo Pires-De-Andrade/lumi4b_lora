@@ -84,6 +84,29 @@ def test_completion_logprobs_matches_manual():
     assert torch.allclose(lp, torch.stack(ref), atol=1e-6) and lp.shape == (3,)
 
 
+def test_completion_logprobs_temperature_scales_logits_and_default_is_unchanged():
+    torch.manual_seed(1)
+    logits = torch.randn(7, 11)
+    ids = torch.randint(0, 11, (7,))
+    base = G.completion_logprobs(logits, ids, n_prompt=3, n_total=6)
+    assert torch.equal(G.completion_logprobs(logits, ids, 3, 6, 1.0), base)  # padrão: igual a antes
+    t = G.completion_logprobs(logits, ids, 3, 6, 0.6)
+    ref = [torch.log_softmax(logits[p - 1] / 0.6, -1)[ids[p]] for p in (3, 4, 5)]
+    assert torch.allclose(t, torch.stack(ref), atol=1e-6) and not torch.allclose(t, base)
+
+
+def test_minibatch_indices_is_the_legacy_shuffle_and_chunking():
+    import random
+
+    n, mb, seed = 23, 8, 5
+    order = list(range(n))
+    random.Random(seed).shuffle(order)
+    legacy = [order[s0: s0 + mb] for s0 in range(0, n, mb)]  # a lógica que ficava dentro do grpo_train.py
+    assert G.minibatch_indices(n, mb, seed) == legacy
+    flat = [i for chunk in legacy for i in chunk]
+    assert sorted(flat) == list(range(n)) and [len(c) for c in legacy] == [8, 8, 7]
+
+
 def test_ppo_loss_gradient_unclipped_and_clipped():
     lo = torch.zeros(4)
     ln = torch.zeros(4, requires_grad=True)
