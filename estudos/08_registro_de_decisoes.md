@@ -124,6 +124,8 @@ Todas as rodadas de RL das etapas 2 a 6 usam a receita e os prompts do `gspo1_c4
 | 3 | RL `gspo1_eps3x`, `gspo1_same`, `gspo1_4k` | diagnósticos de RL, lidos contra a faixa de 64,4 a 67,8% das duas sementes do `gspo1` |
 | 4 | Suíte do Lumi, até o fim | referência, por último de todas |
 
+**Resultado da etapa 1, SFT `qwen_mix_p` (14:41), validação limpa, com thinking:** múltipla escolha **61,8%** (−0,5 contra o `adalberto`, IC −4,7 a +3,6; −7,8 contra o Lumi), fecha 83,1% (86,8% no `adalberto`), trunca 17,7%, GSM8K 84,5% (+1,2), múltipla escolha sem thinking 61,6% (58,2%). **Leitura:** 1.810 traços de MCQ do Qwen sobre o `adalberto` não mudam a múltipla escolha com thinking (dentro do ruído de ±4 pontos) e o fechamento fica 3,7 pontos pior (também dentro do ruído). As letras previstas seguem o gabarito (E 2,2% contra 2,1%). **Se der errado, estudar:** o `qwen_mix` (5.055 traços) e o RL a partir dele seguem na fila; se ele também ficar em torno de 62%, os traços de MCQ do Qwen não melhoram o SFT e o ganho, se vier, vem do RL; a letra E rara nos traços só se mede nas provas de 5 alternativas (suíte de teste).
+
 **Mistura do `qwen_mix`:** `data/train_adalberto.parquet` como está (14.386 linhas) mais 5.055 traços de MCQ do pacote (2.752 MedMCQA, 2.303 WebInstruct; até 2.048 tokens; 6.260 passaram do filtro de 8-gramas, 1 removido), 19.441 linhas e 13,5 milhões de tokens. Distribuição das letras nos mantidos: A 28,1%, B 25,3%, C 24,5%, D 18,8%, E 3,0%, outras 0,3%; a letra E continua rara (as provas de 5 alternativas têm ~20%), então a distribuição das letras previstas na validação deve ser conferida.
 
 ## Fila da noite (versão 3, 22:21; substituída pela versão 4)

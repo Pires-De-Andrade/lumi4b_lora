@@ -23,7 +23,8 @@ RUNS = [
                                 ("adalberto_lr5e5", "adalberto com lr 5e-5"), ("adalberto_L2048", "adalberto com limite de 2.048 tokens"),
                                 ("selfdist", "selfdist: traços do próprio Lumi com prefill em português"), ("adalberto_dora", "adalberto com DoRA"),
                                 ("adalberto_dft", "adalberto com a perda DFT (`--loss dft`)"),
-                                ("qwen_mix", "qwen_mix: matemática do Qwen + múltipla escolha do Qwen (pacote 4) + linhas sem raciocínio do GigaVerbo")]),
+                                ("qwen_mix_p", "qwen_mix_p: dados do adalberto + 1.810 traços de múltipla escolha do Qwen (entrega parcial do pacote 4)"),
+                                ("qwen_mix", "qwen_mix: dados do adalberto + 5.055 traços de múltipla escolha do Qwen (pacote 4 completo)")]),
     ("SFT: dados do Nemotron 30B da Thor, traduzidos (entrega parcial: 4.927 problemas com raciocínio + 5.544 linhas sem raciocínio do GigaVerbo)",
      [("adalberto", "**adalberto: traços do Qwen3-30B (referência)**"), ("thor_pt", "thor_pt: raciocínio do Nemotron 30B traduzido para o português"),
       ("thor_en", "thor_en: os mesmos problemas, raciocínio original em inglês"),
@@ -50,7 +51,7 @@ RUNS = [
                                     ("gspo1_s1", "gspo1_s1: receita do gspo1, semente 1, 4 ciclos"),
                                     ("gspo1_eps3x", "gspo1_eps3x: receita do gspo1 com o corte do GSPO 3x maior, 4 ciclos"),
                                     ("gspo1_same", "gspo1_same: receita do gspo1 com as log-probabilidades antigas na composição do treino, 4 ciclos"),
-                                    ("gspo_qwen_mix", "gspo_qwen_mix: receita do gspo1 a partir do SFT qwen_mix (matemática e múltipla escolha do Qwen), 4 ciclos")]),
+                                    ("gspo_qwen_mix", "gspo_qwen_mix: receita do gspo1 a partir do SFT qwen_mix (adalberto + múltipla escolha do Qwen), 4 ciclos")]),
 ]
 LAYERS = [("adalberto", "adaptador completo (71 módulos)"), ("adalberto_L00_20", "só camadas 0 a 20"), ("adalberto_L21_41", "só camadas 21 a 41"),
           ("adalberto_noMLP", "sem MLP (Mamba e atenção)"), ("adalberto_MLPonly", "só MLP (do adaptador completo, sem retreinar)")]

@@ -983,3 +983,11 @@ Validação, múltipla escolha com thinking, acerto **só nos itens em que todos
 - Validação limpa, com thinking: múltipla escolha 64,4% contra 67,8% do `gspo1_c4` (−3,4; IC −7,5 a +0,8; contra o Lumi, −5,2, IC −9,9 a −0,8); GSM8K 82,5% contra 84,3% (−1,8; IC −3,7 a +0,1); fecha o `</think>` em 87,8% contra 90,9%; trunca 13,0% contra 10,6%; mediana 1.222 contra 1.086 tokens.
 - Leitura: o ruído de uma rodada de RL é da ordem de 3 a 4 pontos em múltipla escolha e 3 no fechamento. Comparações de uma rodada contra outra só valem fora da faixa 64,4 a 67,8. O critério de fechamento de 90% é cumprido por uma semente da receita e não pela outra; o de 98% por nenhuma.
 - Efeito nas leituras anteriores: `gspo1_T06` (63,6%) e `gspo_thor` (67,0%) ficam dentro da faixa; H45 sem efeito demonstrável; H46 refutada.
+
+### 20.52 `qwen_mix_p`: 1.810 traços de MCQ do Qwen sobre o `adalberto` não melhoram o SFT (09/11 14:41)
+
+- SFT com os dados do `adalberto` como estão (14.386 linhas, limite 1.024 tokens) mais 1.810 traços de múltipla escolha da entrega parcial do pacote 4 (1.141 MedMCQA, 669 WebInstruct; até 2.048 tokens; 1 removido pelo filtro de 8-gramas, 380 acima de 2.048); receita do `adalberto` (LoRA r=16, lr 1e-4, 1 época, 507 passos, 1.903 s). A queda da máquina (02:45 a 12:48) veio quando a avaliação começava; a avaliação foi refeita sobre o mesmo modelo mesclado (íntegro: mesmo tamanho do `adalberto`, 263 tensores).
+- Validação limpa, com thinking: múltipla escolha 61,8% contra 62,3% do `adalberto` (−0,5; IC −4,7 a +3,6); fecha o `</think>` em 83,1% contra 86,8%; trunca 17,7% contra 13,8%; mediana de 1.044 contra 1.176 tokens; traço em português 100%. GSM8K 84,5% contra 83,3% (+1,2; IC −0,7 a +3,1). Sem thinking: 61,6% contra 58,2%.
+- Todos os traços começam com "Vou raciocinar em português." (começo forçado da geração) e o modelo reproduz o começo (100% dos traços em português).
+- Letras: previstas na validação A 23,2%, B 22,9%, C 21,3%, D 24,1%, E 2,2% (gabarito 22,3, 22,6, 22,1, 22,3, 2,1); a validação tem só 8 itens com gabarito E, então o efeito da letra E rara nos traços (2,4% no parcial, 3,0% no pacote completo) fica para as provas de 5 alternativas.
+- Leitura: sem apoio para H52 com essa dose; a avaliação é de um SFT só (ruído de ±4 pontos). O `qwen_mix` com 5.055 traços e o RL a partir dele decidem.
