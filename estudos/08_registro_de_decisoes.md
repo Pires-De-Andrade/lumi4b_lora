@@ -126,7 +126,28 @@ Todas as rodadas de RL das etapas 2 a 6 usam a receita e os prompts do `gspo1_c4
 
 **Resultado da etapa 1, SFT `qwen_mix_p` (14:41), validação limpa, com thinking:** múltipla escolha **61,8%** (−0,5 contra o `adalberto`, IC −4,7 a +3,6; −7,8 contra o Lumi), fecha 83,1% (86,8% no `adalberto`), trunca 17,7%, GSM8K 84,5% (+1,2), múltipla escolha sem thinking 61,6% (58,2%). **Leitura:** 1.810 traços de MCQ do Qwen sobre o `adalberto` não mudam a múltipla escolha com thinking (dentro do ruído de ±4 pontos) e o fechamento fica 3,7 pontos pior (também dentro do ruído). As letras previstas seguem o gabarito (E 2,2% contra 2,1%). **Se der errado, estudar:** o `qwen_mix` (5.055 traços) e o RL a partir dele seguem na fila; se ele também ficar em torno de 62%, os traços de MCQ do Qwen não melhoram o SFT e o ganho, se vier, vem do RL; a letra E rara nos traços só se mede nas provas de 5 alternativas (suíte de teste).
 
+**Resultado da etapa 2, SFT `qwen_mix` (15:39), validação limpa, com thinking:** múltipla escolha **62,1%** (−0,3 contra o `adalberto`, IC −4,7 a +4,2; −7,5 contra o Lumi), fecha 83,9% (86,8%), trunca 16,9%, GSM8K 83,4% (+0,1), múltipla escolha sem thinking 62,9% (58,2%); letras previstas sem viés (E 1,9% contra 2,1% do gabarito). **Leitura:** com 5.055 traços de MCQ do Qwen o resultado é o mesmo do `qwen_mix_p` (1.810): 61,8%, 62,1% e 62,3% do `adalberto` não se distinguem; não há efeito de dose no SFT, e o fechamento do `</think>` fica ~3 pontos abaixo do `adalberto`. O RL `gspo_qwen_mix` (início 15:39, ~1,5 h) lê-se contra a faixa de 64,4 a 67,8% das duas sementes do `gspo1`. **Se der errado, estudar:** se o RL ficar na faixa do `gspo1`, os traços de MCQ do Qwen não acrescentam nada nem no SFT nem depois do RL, e o teto da receita (SFT mais RL com este gabarito) está abaixo do Lumi (69,6%).
+
 **Mistura do `qwen_mix`:** `data/train_adalberto.parquet` como está (14.386 linhas) mais 5.055 traços de MCQ do pacote (2.752 MedMCQA, 2.303 WebInstruct; até 2.048 tokens; 6.260 passaram do filtro de 8-gramas, 1 removido), 19.441 linhas e 13,5 milhões de tokens. Distribuição das letras nos mantidos: A 28,1%, B 25,3%, C 24,5%, D 18,8%, E 3,0%, outras 0,3%; a letra E continua rara (as provas de 5 alternativas têm ~20%), então a distribuição das letras previstas na validação deve ser conferida.
+
+
+## Fila da versão 7 (09/11 15:46)
+
+**Mudança:** a versão 6 foi congelada (SIGSTOP no script, sem tocar no RL) com o `gspo_qwen_mix` no ciclo 0; a versão 7 (`scripts/run_noite7_chain.sh`) espera o RL terminar (processo `run_qwen_mix.sh`) e encerra a versão 6. Os RLs `gspo1_eps3x`, `gspo1_same` e `gspo1_4k` saem da fila (adiados): são rodadas únicas e o ruído de 3 a 4 pontos entre sementes (§20.51) só deixa ler efeitos grandes.
+
+**Por quê:** os SFTs de seis variantes de dado, dose e lr ficam em 61 a 63% de múltipla escolha, e o acerto entre os que fecham fica em 72 a 76% contra 80,7% do Lumi (`discovery.md` §20.53). O RL conserta o fechamento (87 a 91%) mas não esse acerto. Duas hipóteses de custo baixo separam as causas.
+
+| Ordem | Etapa | O que mede |
+| --- | --- | --- |
+| 0 | RL `gspo_qwen_mix` (em curso, fim ~17:00) | RL a partir do `qwen_mix` contra a faixa de 64,4 a 67,8% do `gspo1` |
+| 1 | Dados dos dois SFTs (CPU) | `scripts/prepare_sft_curtos.sh` |
+| 2 | SFT `qwen_mix_short` (adalberto + MCQ de até 1.024 tokens) | H53: traços curtos reduzem os laços |
+| 3 | SFT `selfdist_min` (3.000 traços do próprio Lumi, ~94 passos) | H54: quantidade de SFT contra idioma |
+| 4 | Suíte do Lumi, como preenchimento interrompível, por último | referência; os RLs a partir dos SFTs de teste entram interrompendo a suíte |
+
+**Dados:** `qwen_mix_short` = `train_adalberto.parquet` (14.386 linhas) + 2.221 traços de MCQ de até 1.024 tokens (1.517 MedMCQA, 704 WebInstruct; 4.039 dos 6.260 passam de 1.024 tokens), 16.607 linhas, 9,6 milhões de tokens. `selfdist_min` = 3.000 traços do `selfdist` (um por problema, até 1.024 tokens), 1,6 milhão de tokens, sem linhas sem raciocínio. **Ordem de leitura:** o teste 2 primeiro, depois o 1.
+
+**Regra de decisão para os RLs seguintes** (escrita antes de ver os resultados): RL a partir do `qwen_mix_short` se fechar ≥ 87% com múltipla escolha ≥ 62%; RL a partir do `selfdist_min` se o acerto entre os que fecham for ≥ 78% e o traço em português ≥ 90%.
 
 ## Fila da noite (versão 3, 22:21; substituída pela versão 4)
 

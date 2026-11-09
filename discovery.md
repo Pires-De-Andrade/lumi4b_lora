@@ -991,3 +991,9 @@ Validação, múltipla escolha com thinking, acerto **só nos itens em que todos
 - Todos os traços começam com "Vou raciocinar em português." (começo forçado da geração) e o modelo reproduz o começo (100% dos traços em português).
 - Letras: previstas na validação A 23,2%, B 22,9%, C 21,3%, D 24,1%, E 2,2% (gabarito 22,3, 22,6, 22,1, 22,3, 2,1); a validação tem só 8 itens com gabarito E, então o efeito da letra E rara nos traços (2,4% no parcial, 3,0% no pacote completo) fica para as provas de 5 alternativas.
 - Leitura: sem apoio para H52 com essa dose; a avaliação é de um SFT só (ruído de ±4 pontos). O `qwen_mix` com 5.055 traços e o RL a partir dele decidem.
+
+### 20.53 `qwen_mix`: 5.055 traços de MCQ do Qwen dão o mesmo que 1.810 (09/11 15:39)
+
+- SFT com os dados do `adalberto` como estão (14.386 linhas) mais 5.055 traços de múltipla escolha do pacote 4 completo (2.752 MedMCQA, 2.303 WebInstruct; até 2.048 tokens; 6.260 passaram do filtro de 8-gramas), 19.441 linhas e 13,5 milhões de tokens; receita do `adalberto`, 608 passos.
+- Validação limpa, com thinking: múltipla escolha 62,1% contra 62,3% do `adalberto` (−0,3; IC −4,7 a +4,2) e 61,8% do `qwen_mix_p`; fecha o `</think>` em 83,9% contra 86,8%; trunca 16,9% contra 13,8%; mediana de 1.021 contra 1.176 tokens; GSM8K 83,4% (+0,1; IC −1,6 a +1,9). Sem thinking: 62,9% contra 58,2% do `adalberto`.
+- Leitura: nenhuma dose de MCQ do Qwen (0, 1.810, 5.055 traços) muda a múltipla escolha com thinking no SFT (62,3%, 61,8%, 62,1%); o sem thinking sobe 3 a 5 pontos e o fechamento cai ~3 pontos. Letras previstas sem viés (E 1,9% contra 2,1% do gabarito).
