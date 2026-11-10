@@ -10,7 +10,7 @@ Ajustar o `ceia-br/lumi-4b` v0.2 (commit `27b30f40…`) com LoRA ou DoRA para qu
 
 ## Onde estamos
 
-> **Atualização de 10/11:** o melhor candidato passou a ser o `thor_pt_antidoom_of` (múltipla escolha com thinking 73,2% na validação) e a suíte de teste dele terminou (Nota de raciocínio 69,9% contra 63,2% do Lumi com thinking e 65,5% sem, na mesma máquina); estado atual, filas e próximos passos em [../STATUS.md](../STATUS.md). O texto abaixo é o de 08/11.
+> **Atualização de 10/11:** o melhor candidato passou a ser o `thor_pt_antidoom_of` (múltipla escolha com thinking 73,2% na validação) e a suíte de teste dele terminou (Nota de raciocínio 69,9% contra 63,2% do Lumi com thinking e 65,5% sem, na mesma máquina); detalhes em [../discovery.md](../discovery.md) (20.66 a 20.68) e hipóteses em [07_hipoteses_e_proximos_passos.md](07_hipoteses_e_proximos_passos.md). O texto abaixo é o de 08/11.
 
 Melhor candidato até agora: **`gspo1`** (SFT `adalberto` + 8 ciclos de RL com razão por sequência). Validação limpa, nota estrita, diferença contra o Lumi:
 
