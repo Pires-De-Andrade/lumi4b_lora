@@ -103,6 +103,22 @@ def _load_choices(name: str, tag: str) -> list[dict]:
     return items
 
 
+def _read_novas(name: str) -> list[dict]:
+    from lumi_ft.eval import novas
+
+    return novas.read_task(name)
+
+
+def subsample(items: list[dict], n: int, seed: int = 0) -> list[dict]:
+    """`n` itens fixos (sorteio com `seed`, na ordem original); os ids não mudam, então os resultados de uma amostra pareiam com os da prova inteira."""
+    import random
+
+    if len(items) <= n:
+        return items
+    keep = set(random.Random(seed).sample(range(len(items)), n))
+    return [it for i, it in enumerate(items) if i in keep]
+
+
 LOADERS = {
     "mmlu_prox_test": lambda: load_mmlu_prox("test"),
     "mmlu_prox_val": lambda: load_mmlu_prox("validation"),
@@ -116,6 +132,9 @@ LOADERS = {
     "enem": lambda: _load_choices("eduagarcia/enem_challenge", "enem"),
     "bluex": lambda: _load_choices("nicholasKluge/BLUEX_without_images", "bluex"),
     "oab": lambda: _load_choices("eduagarcia/oab_exams", "oab"),
+    "oab_s800": lambda: subsample(_load_choices("eduagarcia/oab_exams", "oab"), 800),  # H67: 800 das 2.210 questões, semente 0
+    # provas novas (checagem externa, plano de 10/11): arquivos gravados por scripts/build_novas_provas.py
+    **{name: (lambda n=name: _read_novas(n)) for name in ("oab_novas", "enem_2024", "mmlu_pt_exatas", "mmlu_pt_enade", "mmlu_pt_concursos")},
 }
 
 

@@ -15,7 +15,9 @@ from pathlib import Path
 from compare_runs import load, paired_bootstrap, paired_bootstrap_mean  # noqa: E402  (mesma pasta)
 
 NAMES = {"gsm8k_val": "GSM8K (validação)", "mcq_val": "Múltipla escolha (validação)", "gsm8k_test": "GSM8K-PT (teste)", "mmlu_prox_test": "MMLU-ProX PT",
-         "enem": "ENEM", "bluex": "BLUEX", "oab": "OAB"}
+         "enem": "ENEM", "bluex": "BLUEX", "oab": "OAB",
+         "oab_novas": "OAB 2018–2025", "enem_2024": "ENEM 2024", "mmlu_pt_exatas": "MMLU-PT exatas", "mmlu_pt_enade": "MMLU-PT ENADE",
+         "mmlu_pt_concursos": "MMLU-PT concursos", "mmlu_prox_diag_pt": "MMLU-ProX PT (1.200)"}
 
 
 def fmt(x: float) -> str:
@@ -33,6 +35,7 @@ def main() -> None:
     ap.add_argument("--root", default="runs/eval")
     ap.add_argument("--key", default="strict_ok", choices=["strict_ok", "flexible_ok"])
     ap.add_argument("--only-ids", default="", help="json com ids a considerar nas tarefas gsm8k_val (validação limpa)")
+    ap.add_argument("--subset-ids", default="", help="tarefa=arquivo.json,tarefa=arquivo.json: restringe a tarefa aos ids do arquivo (análise de sensibilidade)")
     ap.add_argument("--mean", action="store_true", help="acrescenta a coluna da nota média das provas de --tasks (a Nota de raciocínio, com as cinco da suíte)")
     a = ap.parse_args()
     cols = [tuple(c.split("=", 1)) for c in a.col]
@@ -40,6 +43,7 @@ def main() -> None:
     assert a.ref in labels, f"--ref {a.ref!r} não está entre as colunas {labels}"
     keep = set(json.loads(Path(a.only_ids).read_text())) if a.only_ids else None
     tasks = a.tasks.split(",")
+    subsets = {kv.split("=", 1)[0]: set(json.loads(Path(kv.split("=", 1)[1]).read_text())) for kv in a.subset_ids.split(",") if kv}
     data: dict[tuple[str, str], dict | None] = {}
     for lab, spec in cols:
         for t in tasks:
@@ -49,6 +53,8 @@ def main() -> None:
                 d = None
             if d is not None and keep is not None and t == "gsm8k_val":
                 d = {k: v for k, v in d.items() if k in keep}
+            if d is not None and t in subsets:
+                d = {k: v for k, v in d.items() if k in subsets[t]}
             data[(lab, t)] = d
     head = [NAMES.get(t, t) for t in tasks] + (["Nota média"] if a.mean else [])
     out = [f"# Comparação (nota = {a.key}; diferença contra **{a.ref}**, bootstrap pareado, IC 95%)\n",

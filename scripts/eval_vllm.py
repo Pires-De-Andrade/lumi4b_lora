@@ -29,6 +29,19 @@ def expand(tasks: str) -> list[str]:
     return out
 
 
+def sampling_kwargs(a, k: int) -> dict:
+    """Gulosa por padrão (o protocolo, A-04). Com --temperature > 0, amostragem com top-p e uma semente por item (sample_seed + índice),
+    para que a mesma rodada seja reprodutível item a item."""
+    if a.temperature <= 0:
+        return {"temperature": 0.0}
+    return {"temperature": a.temperature, "top_p": a.top_p, "seed": a.sample_seed + k}
+
+
+def decoding_label(a) -> str:
+    base = "greedy" if a.temperature <= 0 else f"sampling T={a.temperature} top_p={a.top_p} seed={a.sample_seed}+item"
+    return f"{base}, {a.max_new} tokens, stop_token_ids=[2, 11], repetition_penalty=1.0"
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--name", required=True)
@@ -42,6 +55,9 @@ def main() -> None:
     ap.add_argument("--max-seqs", type=int, default=128)
     ap.add_argument("--max-len", type=int, default=8192)
     ap.add_argument("--mem", type=float, default=0.88)
+    ap.add_argument("--temperature", type=float, default=0.0, help="0 = gulosa (o protocolo); > 0 só para análises de sensibilidade")
+    ap.add_argument("--top-p", type=float, default=1.0, help="só com --temperature > 0")
+    ap.add_argument("--sample-seed", type=int, default=0, help="semente da amostragem (só com --temperature > 0)")
     ap.add_argument("--out", default="runs/eval")
     a = ap.parse_args()
     out = Path(a.out) / a.name
@@ -62,7 +78,7 @@ def main() -> None:
     llm = LLM(model=a.model, dtype="bfloat16", max_model_len=a.max_len, gpu_memory_utilization=a.mem, max_num_seqs=a.max_seqs,
               enable_prefix_caching=True, seed=0, generation_config="vllm", **kw)
     summary["_engine"] = {"model": a.model, "init_seconds": round(time.time() - t0, 1), "max_num_seqs": a.max_seqs,
-                          "max_len": a.max_len, "prefill": a.prefill, "extra": a.extra, "decoding": "greedy, 4096 tokens, stop_token_ids=[2, 11], repetition_penalty=1.0"}
+                          "max_len": a.max_len, "prefill": a.prefill, "extra": a.extra, "decoding": decoding_label(a)}
     loaded: dict[str, T.Task] = {}
     for tname, mode in todo:
         thinking = MODES[mode]
@@ -70,8 +86,8 @@ def main() -> None:
         pre = a.prefill if thinking else ""
         prompts = [G.render_prompt(tok, task.prompt(it) + (f"\n\n{a.extra}" if a.extra else ""), thinking=thinking) + pre for it in task.items]
         n_prompt = [len(tok(p, add_special_tokens=False)["input_ids"]) for p in prompts]
-        params = [SamplingParams(temperature=0.0, max_tokens=max(1, min(a.max_new, a.max_len - n)), stop_token_ids=EOS_IDS,
-                                 skip_special_tokens=False) for n in n_prompt]
+        params = [SamplingParams(max_tokens=max(1, min(a.max_new, a.max_len - n)), stop_token_ids=EOS_IDS, skip_special_tokens=False,
+                                 **sampling_kwargs(a, k)) for k, n in enumerate(n_prompt)]
         capped = sum(n > a.max_len - a.max_new for n in n_prompt)
         t1 = time.perf_counter()
         outs = llm.generate(prompts, params, use_tqdm=False)
