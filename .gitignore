@@ -11,6 +11,7 @@ __pycache__/
 # dados, adaptadores, avaliações e registros (grandes ou regeráveis)
 /data/
 runs/
+temp/
 
 # arquivos locais, não versionados
 comparacao.md
