@@ -25,3 +25,5 @@ comparacao.md
 # pacote 4: não versionado
 /handoff/thor4/
 /handoff/thor4_pacote.sha256
+# pacote 6 (Spark): a diferença dos pesos não vai para o Git
+/handoff/spark1/t6_delta.bin

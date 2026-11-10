@@ -1,6 +1,6 @@
 # handoff/
 
-Pacotes de geração de dados para a Jetson Thor. A Thor **só gera**; treino e avaliação ficam na 4090. Cada pasta traz o plano (`PLANO_*.md`), o cliente de geração (`gen_traces.py`), o filtro e o `pack.sh`. O que a Thor devolve (`*_out.tar.gz`) vai para `data/` na 4090, que não é versionada.
+Pacotes de geração de dados para a Jetson Thor (e, a partir do 6, de avaliação para a DGX Spark). A Thor **só gera**; treino e avaliação ficam na 4090. Cada pasta traz o plano (`PLANO_*.md`), o cliente de geração (`gen_traces.py`), o filtro e o `pack.sh`. O que a Thor devolve (`*_out.tar.gz`) vai para `data/` na 4090, que não é versionada.
 
 | Pacote | Pasta | O que gera | Professor | Estado | No Git |
 | --- | --- | --- | --- | --- | --- |
@@ -9,6 +9,7 @@ Pacotes de geração de dados para a Jetson Thor. A Thor **só gera**; treino e 
 | 3 | `thor3/` | Tradução das questões e dos traços, mais questões de outros domínios | Nemotron 30B | 12.000 questões traduzidas entregues; blocos 3 e 4 de traços **cancelados** em 08/11 | sim |
 | 4 | `thor4/` | Traços de múltipla escolha **em português** (9.957 questões com gabarito) | Qwen3-30B-A3B-Thinking, começo do raciocínio forçado em português | pacote pronto e validado; **aguarda a Thor** | **não** (decisão de 08/11) |
 | 5 | `thor5/` | **Avaliação, não geração:** Lumi e Nemotron 3 Nano 4B nas provas novas do plano de 10/11 (OAB 2018–2025, ENEM 2024, fatias do MMLU-PT) e o Nemotron na suíte do PRD | – | **rodando na Thor desde 09:01 de 10/11** (`thor5_pacote.tar.gz`, não versionado); a devolução entra com `scripts/import_thor_eval.py` | só o README |
+| 6 | `spark1/` | **Avaliação, na DGX Spark (só Jupyter, sem Claude):** T6-Lumi (`thor_pt_antidoom_of`) e Lumi nas cinco provas novas; um comando (`rodar.sh`) | – | pacote pronto (`spark1_pacote.tar.gz`, ~2 GB, um arquivo só, não versionado: leva a diferença exata entre os pesos do T6-Lumi e os do Lumi, `delta.py`); `bash handoff/spark1/pack.sh` o refaz; devolução com `scripts/import_thor_eval.py --origem spark` | só README e scripts |
 
 **Pacote 3, entrega 1 (08/11, 20:38):** `thor3_out.tar.gz`, sha256 `768372c52d01112e85fee14eaaf5b353ae0fa577a31795b7883a4ac513158e64`, extraído em `data/thor3_e1/` (não versionado). A Thor traduziu com uma **cópia modificada** do `translate_thor.py` (prefill na resposta, limpeza de espaços especiais, reserva frase a frase, processamento contínuo); o diff está em `NOTAS.md` da entrega e o arquivo reconstruído, em `handoff/thor3/translate_thor_v2.py` (o diff aplica sem rejeições no original). A versão que gerou os dados é a anterior ao teste A/B das 00:38: para reproduzi-la, rode com `T3_SEM_2A_TENTATIVA=1`. Os limites de aceitação (`check_piece`) são os do original.
 
