@@ -62,7 +62,10 @@ RUNS = [
                                     ("thor_pt_antidoom", "thor_pt_antidoom: thor_pt + fase anti-laço (receita oficial do Antidoom)"),
                                     ("gspo_thor_antidoom", "gspo_thor_antidoom: gspo_thor (8 ciclos) + fase anti-laço (receita oficial)"),
                                     ("thor_pt_antidoom_of", "thor_pt_antidoom_of: thor_pt + fase anti-laço com o treinador do repositório oficial"),
-                                    ("gspo1_antidoom", "gspo1_antidoom: gspo1 (8 ciclos) + fase anti-laço (receita oficial)")]),
+                                    ("gspo1_antidoom", "gspo1_antidoom: gspo1 (8 ciclos) + fase anti-laço (receita oficial)"),
+                                    ("thor_pt_antidoom_s1", "thor_pt_antidoom_s1: primeira rodada do Antidoom no thor_pt, semente 1"),
+                                    ("thor_pt_antidoom_s2", "thor_pt_antidoom_s2: primeira rodada do Antidoom no thor_pt, semente 2"),
+                                    ("thor_pt_antidoom_r2", "thor_pt_antidoom_r2: segunda rodada do Antidoom sobre o thor_pt_antidoom_of")]),
 ]
 LAYERS = [("adalberto", "adaptador completo (71 módulos)"), ("adalberto_L00_20", "só camadas 0 a 20"), ("adalberto_L21_41", "só camadas 21 a 41"),
           ("adalberto_noMLP", "sem MLP (Mamba e atenção)"), ("adalberto_MLPonly", "só MLP (do adaptador completo, sem retreinar)")]

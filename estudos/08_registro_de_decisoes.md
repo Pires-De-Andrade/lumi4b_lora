@@ -169,6 +169,18 @@ Todas as rodadas de RL das etapas 2 a 6 usam a receita e os prompts do `gspo1_c4
 **Regra de decisão para os RLs seguintes** (a mesma da versão 7): RL a partir do `qwen_mix_short` se fechar ≥ 87% com múltipla escolha ≥ 62%; RL a partir do `selfdist_min` ou do `selfdist_300` se o acerto entre os que fecham for ≥ 78% e o traço em português ≥ 90%. **Proposta ainda sem decisão:** fase anti-laço (H57) sobre o melhor candidato.
 
 
+## Fila da versão 14 (10/11 02:40): segunda rodada do Antidoom, depois da suíte
+
+**Contexto:** a versão 13 rodou toda a fase anti-laço entre 21:00 de 09/11 e 01:40 de 10/11 (resultados em [06](06_registro_experimentos.md) e [07](07_hipoteses_e_proximos_passos.md)): o Antidoom oficial levou o `thor_pt` de 54,3% a 73,2% de múltipla escolha com thinking em 4 a 6 min de treino, e a regra única escolheu o `thor_pt_antidoom_of` para a suíte de teste, que roda desde 01:40.
+
+**Pedido e o que os dados mudaram:** a segunda rodada de mineração sobre o modelo novo foi planejada com a ideia de que consertar um laço expõe outros. Depois da primeira rodada, porém, o laço oficial em `heldout` é 0,4% (2 de 500) e, na validação, só 1 das 17 respostas que não fecham tem laço; as outras são raciocínio longo e indeciso, sem repetição. A conta dá ~30 eventos em 8.000 prompts (a primeira rodada teve 3.394), e com 136 eventos a receita oficial nem treinou (`gspo1_antidoom`: 9 passos). Uma mineração de 8.000 prompts custaria ~1 h de GPU para um resultado esperado de "sem material".
+
+**Desenho:** a versão 14 (`scripts/run_noite14_chain.sh`) espera a sessão `noite13` acabar (a suíte é o último passo dela), **não roda nenhuma suíte de teste** e faz: (1) **sonda** de 3.000 prompts de múltipla escolha no `thor_pt_antidoom_of`, com as configurações oficiais (~25 min), que escala para a segunda rodada completa só se achar ≥ 100 eventos (H64); (2) **duas sementes** (1 e 2) do treino da primeira rodada sobre os mesmos 3.394 eventos, com fusão, validação e laço depois (~25 min cada), para medir a variação do ganho (H65). Duração prevista: ~1,3 h depois do fim da suíte.
+
+**Regras escritas antes dos resultados:** H64 e H65 em `estudos/07`. A troca do candidato da suíte exige, na validação, múltipla escolha ≥ 75,2%, fecha ≥ 95,6%, GSM8K limpo ≥ 84,8% e português ≥ 90%; a decisão usa só a validação, a suíte de um segundo modelo só roda com autorização e as duas suítes entram no relatório.
+
+**Alternativas não enfileiradas:** H62 (RL com prompts difíceis; a partir do modelo novo exige adaptar `grpo_train.py` e `run_grpo.sh` para partir de um modelo fundido, sem código) e H63 (SFT com traços ≤ 512 tokens). O RL a partir do `thor_pt_antidoom_of`, que a regra da H59 mandava, não entra: o RL sobre o `thor_pt` custou 4,5 pontos por item (`gspo_thor`) contra 1,0 do Antidoom, e o ganho do RL vinha do fechamento, que o Antidoom já deu.
+
 ## Fila da versão 13 (09/11 19:40): RL do `qwen_mix_short` primeiro
 
 **Gatilho:** o SFT `qwen_mix_short` terminou com múltipla escolha 66,5% com thinking (empate estatístico com o Lumi: −3,1, IC −7,5 a +1,3), fecha 89,1%, traço em português 99,1%, GSM8K limpo 83,7%; nos itens em que o Lumi e ele fecham, perde 4,9 pontos (o `gspo1` perde 7,5). A regra do H53, escrita antes do resultado, manda fazer o RL a partir dele quando fecha ≥ 87% com múltipla escolha ≥ 62%.
@@ -178,6 +190,8 @@ Todas as rodadas de RL das etapas 2 a 6 usam a receita e os prompts do `gspo1_c4
 **Mudança:** a versão 12 foi congelada (SIGSTOP) com o código da fase anti-laço pronto e o teste de fumaça por começar; a versão 13 (`scripts/run_noite13_chain.sh`) assumiu às 19:40. Ordem: (1) RL `gspo_qwen_mix_short` (H60); (2) teste de fumaça do treino da receita oficial; (3) Antidoom oficial no `thor_pt` (H59); (4) no `gspo_thor` (H58); (5) braço do treinador oficial; (6) `selfdist_min` e `selfdist_300` (H54); (7) Antidoom no `gspo1` (H57); (8) suíte de um candidato, por regra (padrão `gspo1`; `gspo_qwen_mix_short` entra na lista da regra).
 
 **Regra de leitura da H60:** ver `estudos/07`. Resumo: apoia se a múltipla escolha com thinking ficar ≥ 69,5%, fechar ≥ 93% e o português ≥ 90%, sem queda do GSM8K limpo abaixo de 83%.
+
+**Resultado da fila toda (10/11 02:30):** ver a versão 14 acima e `estudos/07`: o Antidoom oficial no `thor_pt` deu 73,2% (H59 apoiada), no `gspo_thor` 69,9% (H58 apoiada), a portagem equivale ao treinador oficial (H61 apoiada), o `gspo1_antidoom` não treinou (H57), os `selfdist` não ajudam (H54 inconclusiva) e a suíte rodou para o `thor_pt_antidoom_of` (escolhido pela regra única; a nossa portagem ficou a 0,01 ponto do limite de fechamento, 92,99% contra 93%).
 
 **Resultado (09/11 20:57):** o RL terminou em 75 min com múltipla escolha 67,0% (fecha 90,1%, português 98,6%, GSM8K limpo 83,1%), abaixo do 69,5% da regra: sem apoio, um segundo `gspo1`. A fila não muda: o próximo passo (teste de fumaça e Antidoom no `thor_pt`) segue como estava, porque os tetos grosseiros por modelo (`thor_pt` 71,7%, `gspo_thor` 70,6%, `gspo_qwen_mix_short` 68,8%) mantêm a ordem. Para a suíte, `gspo_qwen_mix_short` não passa a regra única (múltipla escolha < 69,6% e fecha < 93%); o candidato continua o `gspo1`.
 
