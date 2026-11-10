@@ -6,7 +6,7 @@ Validação limpa, nota **estrita**, decodificação gulosa, 4.096 tokens. GSM8K
 
 | Rodada | GSM8K com thinking | GSM8K sem | Múlt. escolha com thinking | Múlt. escolha sem | Forma da múlt. escolha: fecha / PT / trunca / mediana tok | Avaliação (min) |
 | --- | --- | --- | --- | --- | --- | --- |
-| Lumi original (`base`) | 81,7 | 77,2 | 69,6 | 63,9 | 86,2 / 0,0 / 13,8 / 490 | 168 |
+| Lumi original (`base`) | 81,7 | 77,2 | 69,6 | 63,9 | 86,2 / 0,0 / 13,8 / 490 | 258 |
 | Nemotron 3 Nano 4B (pai do Lumi) (`nemotron4b`) | 85,2 (+3,6) ▲ | 63,5 (-13,8) ▼ | 68,3 (-1,3) | 58,7 (-5,2) ▼ | 89,6 / 0,3 / 10,4 / 503 | 5 |
 | Lumi com o começo do raciocínio forçado em português (sem treino) (`base_ptprefill`) | 47,5 (-34,2) ▼ | 77,2 (+0,0) | 61,3 (-8,3) ▼ | 61,6 (-2,3) | 79,7 / 74,9 / 18,4 / 433 | 9 |
 
@@ -88,8 +88,11 @@ Validação limpa, nota **estrita**, decodificação gulosa, 4.096 tokens. GSM8K
 | gspo_qwen_mix_short: RL (receita do gspo1, 4 ciclos) a partir do SFT qwen_mix_short (`gspo_qwen_mix_short`) | 83,1 (+1,5) | 79,1 (+1,9) | 67,0 (-2,6) | 65,7 (+1,8) | 90,1 / 98,6 / 8,8 / 905 | 12 |
 | thor_pt_antidoom: thor_pt + fase anti-laço (receita oficial do Antidoom) (`thor_pt_antidoom`) | 84,0 (+2,4) | 76,8 (-0,4) | 73,2 (+3,6) | 63,1 (-0,8) | 93,0 / 100,0 / 7,0 / 788 | 8 |
 | gspo_thor_antidoom: gspo_thor (8 ciclos) + fase anti-laço (receita oficial) (`gspo_thor_antidoom`) | 86,1 (+4,4) ▲ | 77,2 (+0,0) | 69,9 (+0,3) | 61,0 (-2,9) | 93,2 / 96,1 / 6,8 / 609 | 6 |
-| thor_pt_antidoom_of: thor_pt + fase anti-laço com o treinador do repositório oficial (`thor_pt_antidoom_of`) | 85,8 (+4,1) ▲ | 76,8 (-0,4) | 73,2 (+3,6) | 62,3 (-1,6) | 95,6 / 99,5 / 4,7 / 720 | 7 |
+| thor_pt_antidoom_of: thor_pt + fase anti-laço com o treinador do repositório oficial (`thor_pt_antidoom_of`) | 85,8 (+4,1) ▲ | 76,8 (-0,4) | 73,2 (+3,6) | 62,3 (-1,6) | 95,6 / 99,5 / 4,7 / 720 | 195 |
 | gspo1_antidoom: gspo1 (8 ciclos) + fase anti-laço (receita oficial) (`gspo1_antidoom`) | 84,9 (+3,3) ▲ | 79,6 (+2,4) | 65,7 (-3,9) | 57,9 (-6,0) ▼ | 91,2 / 98,3 / 8,8 / 1066 | 11 |
+| thor_pt_antidoom_s1: primeira rodada do Antidoom no thor_pt, semente 1 (`thor_pt_antidoom_s1`) | 85,4 (+3,7) ▲ | 76,2 (-1,0) | 72,5 (+2,9) | 62,6 (-1,3) | 91,9 / 99,7 / 8,1 / 893 | 8 |
+| thor_pt_antidoom_s2: primeira rodada do Antidoom no thor_pt, semente 2 (`thor_pt_antidoom_s2`) | 85,7 (+4,0) ▲ | 77,8 (+0,6) | 74,0 (+4,4) | 63,6 (-0,3) | 95,3 / 99,5 / 4,7 / 667 | 7 |
+| thor_pt_antidoom_r2: segunda rodada do Antidoom sobre o thor_pt_antidoom_of (`thor_pt_antidoom_r2`) | – | – | – | – | – | – |
 
 ## Triagem por camadas (adaptador `adalberto` fundido só em parte; só com thinking)
 

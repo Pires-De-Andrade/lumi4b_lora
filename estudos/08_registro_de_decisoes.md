@@ -169,6 +169,22 @@ Todas as rodadas de RL das etapas 2 a 6 usam a receita e os prompts do `gspo1_c4
 **Regra de decisão para os RLs seguintes** (a mesma da versão 7): RL a partir do `qwen_mix_short` se fechar ≥ 87% com múltipla escolha ≥ 62%; RL a partir do `selfdist_min` ou do `selfdist_300` se o acerto entre os que fecham for ≥ 78% e o traço em português ≥ 90%. **Proposta ainda sem decisão:** fase anti-laço (H57) sobre o melhor candidato.
 
 
+## Resultado das filas 14 e 15 (10/11 07:50): sementes reproduzem, Lumi na 4090 confirma a suíte
+
+**Linha do tempo:** `noite13` (suíte de teste do `thor_pt_antidoom_of`) terminou às 04:49; `noite14` (sonda sem material às 05:08, depois as sementes 1 e 2) às 05:53; `noite15` (Lumi na 4090 em MMLU-ProX sem thinking, ENEM, BLUEX e OAB, os dois modos, 1,6 h) às 07:29. Nenhuma suíte de teste de outro modelo foi rodada.
+
+**H65 (sementes):** apoiada. Semente 1: múltipla escolha 72,5%, fecha 91,95%, laço em `heldout` 3,6%; semente 2: 74,0%, 95,3%, 0,8%. As duas passam a regra escrita antes (≥ 70,0%, ≥ 90%, ≤ 5%); nenhuma passa a troca de candidato (≥ 75,2%), então o candidato continua `thor_pt_antidoom_of`. O ganho sobre o `thor_pt` (54,3%) fica em +18,2 a +19,7 pontos nas três execuções; o fechamento (91,95% a 95,3%) e o laço (0,4% a 3,6%) variam mais que a múltipla escolha (72,5% a 74,0%).
+
+**H66 (Lumi na 4090):** apoiada, com uma exceção declarada: o BLUEX sem thinking difere 1,52 ponto entre as máquinas (71,19% e 72,71%), acima do 1,0 da regra; as outras nove combinações diferem ≤ 0,83. A comparação principal passa a ser a da 4090 (regra (1) de H66, escrita antes do resultado); a da Thor fica como secundária. Resultado principal: Nota +6,8 (IC +5,9 a +7,6) contra o Lumi com thinking e +4,4 (IC +3,4 a +5,4) contra o Lumi sem thinking; GSM8K-PT +5,0 (IC +3,3 a +6,7) contra o Lumi sem thinking.
+
+**Leitura do critério (PRD):** meta mínima da Nota (IC acima de 0 contra os dois modos) e do GSM8K-PT (+3,0 com IC acima de 0) cumpridas; metas alvo (Nota +5,0 sobre o Lumi sem thinking; GSM8K +10,0) não. Traços em português: 97,3% a 100% por prova (≥ 90%: cumprido). Sem thinking roda o Lumi original (decisão de 08/11), então a meta "overall sem thinking" é cumprida por construção.
+
+**Pendente (decisão de uma pessoa):** o limiar de fechamento. O PRD diz "≥ 90% (original ≥ 98%)" para o Lumi com raciocínio, sem dizer em que conjunto. Leituras: validação de múltipla escolha 95,6%; por prova de teste GSM8K 99,8%, ENEM 97,1%, BLUEX 95,7%, OAB 89,4%, MMLU-ProX 82,6%; média simples 92,9%; média ponderada pelos itens 86,5% (Lumi na 4090: 96,8%, 91,3%, 83,5%, 39,2%, 73,4%; média simples 76,9%, ponderada 72,7%). Como os resultados já são conhecidos, qualquer escolha agora é posterior a eles, no mesmo caso da emenda de 08/11: deve ser datada e declarada, e o relatório mostra todas as leituras e quais passam em cada limiar (90% e 98%).
+
+## Resultado da sonda da versão 14 (10/11 05:08): sem material para a segunda rodada
+
+A sonda de 3.000 prompts de múltipla escolha no `thor_pt_antidoom_of` (temperatura 0,1, top-k 50, min-p 0,01, 4.000 tokens, detector oficial; 876 s, 2,8 milhões de tokens) achou **4 eventos** (0,13%), contra o limiar de 100 escrito antes (H64). Não termina 2,9% (88 respostas), e só 2 dessas são laço. Pela regra, a `noite14` registrou "SEM MATERIAL", não minerou os 8.000 prompts e seguiu para as sementes (H65). O que resta do não fechamento é raciocínio longo e indeciso, que a preferência no token que inicia o laço não corrige; os caminhos que sobram são H62 (RL com prompts difíceis) e H63 (traços de múltipla escolha ≤ 512 tokens), ambos fora da fila.
+
 ## Fila da versão 15 (10/11 02:55, emendada às 10/11 03:03): o Lumi na 4090 nas provas que faltam, depois da `noite14`
 
 **Contexto:** o primeiro resultado da suíte de teste do `thor_pt_antidoom_of` (GSM8K-PT, 01:45 de 10/11) deu 90,35%. Contra o Lumi sem thinking, referência do PRD para o GSM8K-PT (meta mínima +3,0 com IC acima de 0), a diferença é **+5,0 (IC +3,3 a +6,7)**: meta cumprida. Contra o Lumi com thinking, que entra na Nota de raciocínio, é +1,39 (IC −0,23 a +3,01) com o Lumi rodado na Thor e +1,62 (IC 0,00 a +3,24) com o Lumi rodado na 4090. O Lumi rodado nas duas máquinas tem a mesma média, mas discorda em 57 dos 1.295 itens (4,4%); o IC pareado não inclui esse ruído de numérica. A suíte do Lumi disponível para ENEM, BLUEX e OAB é só a da Thor (`lumi_suite_base_thor.tar.gz`, 09/11, em `runs/eval/base_thor/`); na 4090 o Lumi tem só o GSM8K (os dois modos) e o MMLU-ProX de teste (com thinking).
