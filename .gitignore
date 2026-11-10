@@ -22,6 +22,7 @@ comparacao.md
 /handoff/*/.venv-gen/
 /handoff/*/*.tar.gz
 /handoff/*.tar.gz
+/handoff/*.tar
 # pacote 4: não versionado
 /handoff/thor4/
 /handoff/thor4_pacote.sha256
