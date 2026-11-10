@@ -274,6 +274,7 @@ estudos/               # the project organized as ablation studies (start with i
 src/lumi_ft/           # code: data, modeling/PEFT, training, evaluation
 scripts/               # training, RL, vLLM evaluation, merging, data generation (see scripts/README.md)
 handoff/               # data-generation packages for the Jetson Thor (see handoff/README.md)
+hf/t6-lumi/           # model card draft, figures and the whitelist publisher for the T6-Lumi repository on Hugging Face
 tests/                 # automated tests (CPU)
 reports/               # data manifests and intermediate reports
 env.sh, pyproject.toml, uv.lock   # environment (caches stay inside the project)
