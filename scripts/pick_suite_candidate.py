@@ -1,6 +1,6 @@
 """Escolhe o ÚNICO modelo que vai para a suíte de teste, pela regra escrita antes dos resultados (estudos/07, H58 e H59).
 
-Um candidato da fase anti-laço só substitui o `gspo1` se, na validação com thinking, tiver múltipla escolha >= 69,6% (empate com o Lumi),
+Um candidato (RL do `qwen_mix_short` ou fase anti-laço) só substitui o `gspo1` se, na validação com thinking, tiver múltipla escolha >= 69,6% (empate com o Lumi),
 fechar o `</think>` em >= 93% da múltipla escolha, GSM8K limpo >= 83% e traço em português >= 90% nas duas provas. Entre os que passam, vence
 a maior múltipla escolha (empate: maior GSM8K limpo). Se nenhum passar, o candidato é o `gspo1` (8 ciclos).
 Imprime o diagnóstico na saída de erro e, na última linha da saída padrão, `NOME|pasta_do_modelo` (o formato do scripts/run_suite_models.sh).
@@ -9,7 +9,8 @@ import json
 import sys
 from pathlib import Path
 
-CANDIDATOS = ["thor_pt_antidoom", "gspo_thor_antidoom", "thor_pt_antidoom_of", "gspo1_antidoom"]
+CANDIDATOS = ["gspo_qwen_mix_short", "thor_pt_antidoom", "gspo_thor_antidoom", "thor_pt_antidoom_of", "gspo1_antidoom"]
+PASTAS = {"gspo_qwen_mix_short": "runs/grpo/gspo_qwen_mix_short/merged"}  # o RL deixa o fundido final na pasta do RL
 PADRAO = ("gspo1", "runs/grpo/gspo1/merged")
 LIMIAR = {"mcq": 0.696, "fecha": 0.93, "gsm8k_limpo": 0.83, "pt": 0.90}
 
@@ -45,7 +46,7 @@ def escolher(cands: list[str] = CANDIDATOS, **kw) -> tuple[str, str, list]:
             passam.append((m["mcq"], m["gsm8k_limpo"], nome))
     if passam:
         _, _, nome = max(passam)
-        return nome, f"runs/merged/{nome}", diag
+        return nome, PASTAS.get(nome, f"runs/merged/{nome}"), diag
     return PADRAO[0], PADRAO[1], diag
 
 

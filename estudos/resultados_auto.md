@@ -23,7 +23,7 @@ Validação limpa, nota **estrita**, decodificação gulosa, 4.096 tokens. GSM8K
 | adalberto com a perda DFT (`--loss dft`) · 17,1 M param. (`adalberto_dft`) | 83,3 (+1,6) | 80,5 (+3,3) ▲ | 61,3 (-8,3) ▼ | 63,1 (-0,8) | 77,7 / 0,7 / 7,8 / 838 | 12 |
 | qwen_mix_p: dados do adalberto + 1.810 traços de múltipla escolha do Qwen (entrega parcial do pacote 4) · 17,1 M param. (`qwen_mix_p`) | 84,5 (+2,8) ▲ | 81,1 (+3,8) ▲ | 61,8 (-7,8) ▼ | 61,6 (-2,3) | 83,1 / 100,0 / 17,7 / 1044 | 12 |
 | qwen_mix: dados do adalberto + 5.055 traços de múltipla escolha do Qwen (pacote 4 completo) · 17,1 M param. (`qwen_mix`) | 83,4 (+1,8) | 79,3 (+2,1) | 62,1 (-7,5) ▼ | 62,9 (-1,0) | 83,9 / 99,4 / 16,9 / 1021 | 13 |
-| qwen_mix_short: dados do adalberto + 2.221 traços de múltipla escolha do Qwen de até 1.024 tokens (`qwen_mix_short`) | – | – | – | – | – | – |
+| qwen_mix_short: dados do adalberto + 2.221 traços de múltipla escolha do Qwen de até 1.024 tokens · 17,1 M param. (`qwen_mix_short`) | 83,7 (+2,1) | 79,1 (+1,9) | 66,5 (-3,1) | 62,3 (-1,6) | 89,1 / 99,1 / 10,9 / 884 | 12 |
 | selfdist_min: 3.000 traços de matemática do próprio Lumi em português, ~94 passos (`selfdist_min`) | – | – | – | – | – | – |
 | selfdist_300: 300 traços de matemática do próprio Lumi em português, ~10 passos (`selfdist_300`) | – | – | – | – | – | – |
 
@@ -85,8 +85,11 @@ Validação limpa, nota **estrita**, decodificação gulosa, 4.096 tokens. GSM8K
 | gspo_qwen_mix: receita do gspo1 a partir do SFT qwen_mix (adalberto + múltipla escolha do Qwen), 4 ciclos (`gspo_qwen_mix`) | 84,0 (+2,4) | 80,2 (+3,0) ▲ | 64,4 (-5,2) ▼ | 65,7 (+1,8) | 87,8 / 98,8 / 12,5 / 982 | 12 |
 | gspo1_soup2: média dos pesos do gspo1 (ciclo 4) e do gspo1_s1 (`gspo1_soup2`) | 84,6 (+3,0) ▲ | 79,9 (+2,7) | 63,6 (-6,0) ▼ | 59,2 (-4,7) | 88,1 / 98,2 / 13,0 / 1100 | 12 |
 | gspo1_soup3: média dos pesos do gspo1 (ciclo 4), do gspo1_s1 e do gspo1_T06 (`gspo1_soup3`) | 84,9 (+3,3) ▲ | 79,0 (+1,8) | 64,7 (-4,9) ▼ | 57,1 (-6,8) ▼ | 88,8 / 97,7 / 12,2 / 1147 | 12 |
-| gspo1_antidoom_r1: gspo1 (8 ciclos) + fase anti-laço (preferência no token que inicia o laço) (`gspo1_antidoom_r1`) | – | – | – | – | – | – |
-| gspo_thor_antidoom_r2: gspo_thor (8 ciclos, a partir do thor_pt) + fase anti-laço (`gspo_thor_antidoom_r2`) | – | – | – | – | – | – |
+| gspo_qwen_mix_short: RL (receita do gspo1, 4 ciclos) a partir do SFT qwen_mix_short (`gspo_qwen_mix_short`) | 83,1 (+1,5) | 79,1 (+1,9) | 67,0 (-2,6) | 65,7 (+1,8) | 90,1 / 98,6 / 8,8 / 905 | 12 |
+| thor_pt_antidoom: thor_pt + fase anti-laço (receita oficial do Antidoom) (`thor_pt_antidoom`) | – | – | – | – | – | – |
+| gspo_thor_antidoom: gspo_thor (8 ciclos) + fase anti-laço (receita oficial) (`gspo_thor_antidoom`) | – | – | – | – | – | – |
+| thor_pt_antidoom_of: thor_pt + fase anti-laço com o treinador do repositório oficial (`thor_pt_antidoom_of`) | – | – | – | – | – | – |
+| gspo1_antidoom: gspo1 (8 ciclos) + fase anti-laço (receita oficial) (`gspo1_antidoom`) | – | – | – | – | – | – |
 
 ## Triagem por camadas (adaptador `adalberto` fundido só em parte; só com thinking)
 

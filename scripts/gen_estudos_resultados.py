@@ -58,6 +58,7 @@ RUNS = [
                                     ("gspo_qwen_mix", "gspo_qwen_mix: receita do gspo1 a partir do SFT qwen_mix (adalberto + múltipla escolha do Qwen), 4 ciclos"),
                                     ("gspo1_soup2", "gspo1_soup2: média dos pesos do gspo1 (ciclo 4) e do gspo1_s1"),
                                     ("gspo1_soup3", "gspo1_soup3: média dos pesos do gspo1 (ciclo 4), do gspo1_s1 e do gspo1_T06"),
+                                    ("gspo_qwen_mix_short", "gspo_qwen_mix_short: RL (receita do gspo1, 4 ciclos) a partir do SFT qwen_mix_short"),
                                     ("thor_pt_antidoom", "thor_pt_antidoom: thor_pt + fase anti-laço (receita oficial do Antidoom)"),
                                     ("gspo_thor_antidoom", "gspo_thor_antidoom: gspo_thor (8 ciclos) + fase anti-laço (receita oficial)"),
                                     ("thor_pt_antidoom_of", "thor_pt_antidoom_of: thor_pt + fase anti-laço com o treinador do repositório oficial"),

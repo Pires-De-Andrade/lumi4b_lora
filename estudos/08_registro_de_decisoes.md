@@ -169,6 +169,18 @@ Todas as rodadas de RL das etapas 2 a 6 usam a receita e os prompts do `gspo1_c4
 **Regra de decisão para os RLs seguintes** (a mesma da versão 7): RL a partir do `qwen_mix_short` se fechar ≥ 87% com múltipla escolha ≥ 62%; RL a partir do `selfdist_min` ou do `selfdist_300` se o acerto entre os que fecham for ≥ 78% e o traço em português ≥ 90%. **Proposta ainda sem decisão:** fase anti-laço (H57) sobre o melhor candidato.
 
 
+## Fila da versão 13 (09/11 19:40): RL do `qwen_mix_short` primeiro
+
+**Gatilho:** o SFT `qwen_mix_short` terminou com múltipla escolha 66,5% com thinking (empate estatístico com o Lumi: −3,1, IC −7,5 a +1,3), fecha 89,1%, traço em português 99,1%, GSM8K limpo 83,7%; nos itens em que o Lumi e ele fecham, perde 4,9 pontos (o `gspo1` perde 7,5). A regra do H53, escrita antes do resultado, manda fazer o RL a partir dele quando fecha ≥ 87% com múltipla escolha ≥ 62%.
+
+**Por que na frente do Antidoom:** (1) a regra já estava escrita e foi atendida; (2) o RL é a ferramenta que mais subiu todos os SFTs; (3) das 42 respostas do `qwen_mix_short` que não fecham só 11 a 17 são laço (o Antidoom trata laço, não raciocínio longo); (4) custa ~1,5 h mais a avaliação, contra ~3 h de cada etapa do Antidoom; (5) é a única linha cujo ponto de partida já está no nível do `gspo1`.
+
+**Mudança:** a versão 12 foi congelada (SIGSTOP) com o código da fase anti-laço pronto e o teste de fumaça por começar; a versão 13 (`scripts/run_noite13_chain.sh`) assumiu às 19:40. Ordem: (1) RL `gspo_qwen_mix_short` (H60); (2) teste de fumaça do treino da receita oficial; (3) Antidoom oficial no `thor_pt` (H59); (4) no `gspo_thor` (H58); (5) braço do treinador oficial; (6) `selfdist_min` e `selfdist_300` (H54); (7) Antidoom no `gspo1` (H57); (8) suíte de um candidato, por regra (padrão `gspo1`; `gspo_qwen_mix_short` entra na lista da regra).
+
+**Regra de leitura da H60:** ver `estudos/07`. Resumo: apoia se a múltipla escolha com thinking ficar ≥ 69,5%, fechar ≥ 93% e o português ≥ 90%, sem queda do GSM8K limpo abaixo de 83%.
+
+**Resultado (09/11 20:57):** o RL terminou em 75 min com múltipla escolha 67,0% (fecha 90,1%, português 98,6%, GSM8K limpo 83,1%), abaixo do 69,5% da regra: sem apoio, um segundo `gspo1`. A fila não muda: o próximo passo (teste de fumaça e Antidoom no `thor_pt`) segue como estava, porque os tetos grosseiros por modelo (`thor_pt` 71,7%, `gspo_thor` 70,6%, `gspo_qwen_mix_short` 68,8%) mantêm a ordem. Para a suíte, `gspo_qwen_mix_short` não passa a regra única (múltipla escolha < 69,6% e fecha < 93%); o candidato continua o `gspo1`.
+
 ## Fila da versão 12 (09/11 18:45): receita oficial do Antidoom, por ganho esperado
 
 **Decisões de 09/11:** (1) usar a receita do repositório oficial do Antidoom ([Liquid4All/antidoom](https://github.com/Liquid4All/antidoom), Apache-2.0, clonado em `../antidoom_oficial`, commit `bd6a126`) no lugar da versão própria, que tinha diferenças de método, entre elas o `chosen_win` medido pelo melhor escolhido (o oficial mede a fração dos escolhidos acima do rejeitado), o que pararia o treino cedo demais ([discovery §20.61](../discovery.md)); (2) testar a fase também no `thor_pt`, o SFT com mais laço; (3) rodar um braço com o treinador do próprio repositório, para separar efeito do método de efeito da nossa portagem; (4) ordenar a fila pelo ganho esperado; (5) a suíte de teste roda um único candidato, escolhido por regra escrita antes dos resultados (`scripts/pick_suite_candidate.py`), com o `gspo1` como padrão.
