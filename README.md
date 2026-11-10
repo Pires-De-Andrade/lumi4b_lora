@@ -3,6 +3,8 @@
 **Authors:** @gustavobarrosss · @Pires-De-Andrade
 
 > A study project by undergraduate students, still in progress.
+> **Current state and next steps (2026-11-10, in Portuguese): [STATUS.md](STATUS.md).** The best candidate is now `thor_pt_antidoom_of` (an anti-loop preference phase on top of the `thor_pt` SFT), and its test-suite run is in progress; the sections below describe the state of 2026-11-08.
+>
 > Status as of 2026-11-08. **The results below are preliminary**: they come from the validation sets, and none of our trained models has gone through the final test suite yet.
 
 ## Abstract

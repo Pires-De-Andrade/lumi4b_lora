@@ -169,6 +169,18 @@ Todas as rodadas de RL das etapas 2 a 6 usam a receita e os prompts do `gspo1_c4
 **Regra de decisão para os RLs seguintes** (a mesma da versão 7): RL a partir do `qwen_mix_short` se fechar ≥ 87% com múltipla escolha ≥ 62%; RL a partir do `selfdist_min` ou do `selfdist_300` se o acerto entre os que fecham for ≥ 78% e o traço em português ≥ 90%. **Proposta ainda sem decisão:** fase anti-laço (H57) sobre o melhor candidato.
 
 
+## Fila da versão 15 (10/11 02:55, emendada às 10/11 03:03): o Lumi na 4090 nas provas que faltam, depois da `noite14`
+
+**Contexto:** o primeiro resultado da suíte de teste do `thor_pt_antidoom_of` (GSM8K-PT, 01:45 de 10/11) deu 90,35%. Contra o Lumi sem thinking, referência do PRD para o GSM8K-PT (meta mínima +3,0 com IC acima de 0), a diferença é **+5,0 (IC +3,3 a +6,7)**: meta cumprida. Contra o Lumi com thinking, que entra na Nota de raciocínio, é +1,39 (IC −0,23 a +3,01) com o Lumi rodado na Thor e +1,62 (IC 0,00 a +3,24) com o Lumi rodado na 4090. O Lumi rodado nas duas máquinas tem a mesma média, mas discorda em 57 dos 1.295 itens (4,4%); o IC pareado não inclui esse ruído de numérica. A suíte do Lumi disponível para ENEM, BLUEX e OAB é só a da Thor (`lumi_suite_base_thor.tar.gz`, 09/11, em `runs/eval/base_thor/`); na 4090 o Lumi tem só o GSM8K (os dois modos) e o MMLU-ProX de teste (com thinking).
+
+**Desenho:** a versão 15 (`scripts/run_noite15_chain.sh`) espera a sessão `noite14` acabar e roda o Lumi original (`base`) na 4090 em MMLU-ProX PT (sem thinking), ENEM, BLUEX e OAB (os dois modos). Custo: ~9 milhões de tokens com thinking e ~6 milhões sem (contagem da Thor) a ~2.900 tok/s, ~1,5 a 2 h. Se a suíte do `thor_pt_antidoom_of` estiver completa, gera `runs/jobs/noite15_comparacao.md` com duas tabelas de `report_compare.py --mean`, contra o Lumi com thinking e contra o Lumi sem thinking, ambos na 4090 e com o da Thor ao lado, com IC pareado por prova e na nota média das cinco (a opção `--mean` e `paired_bootstrap_mean` em `compare_runs.py` são novas, com teste).
+
+**Emenda de 10/11 03:03 (antes de qualquer resultado da `noite15`):** a primeira versão da fila rodava só o Lumi com thinking, por uma leitura incompleta do PRD, que pede a Nota de raciocínio contra o Lumi **nos dois modos** e o GSM8K-PT contra o Lumi **sem** thinking. A sessão `noite15` ainda estava em espera (nenhum job tinha começado), foi encerrada e relançada com os dois modos; o custo subiu ~35 min.
+
+**Regras escritas antes dos resultados:** H66 em `estudos/07`. A comparação principal do relatório é a da mesma máquina (4090 contra 4090), qualquer que seja o lado favorável, e a da Thor é secundária; as máquinas contam como equivalentes se a nota do Lumi diferir ≤ 1,0 ponto em cada prova e modo novos; o critério do PRD é lido como está no PRD (Nota contra os dois modos do Lumi; GSM8K contra o sem thinking).
+
+**Não faz:** não avalia modelo nosso (é a referência, não uma segunda suíte de candidato) e não muda a fila da `noite14`.
+
 ## Fila da versão 14 (10/11 02:40): segunda rodada do Antidoom, depois da suíte
 
 **Contexto:** a versão 13 rodou toda a fase anti-laço entre 21:00 de 09/11 e 01:40 de 10/11 (resultados em [06](06_registro_experimentos.md) e [07](07_hipoteses_e_proximos_passos.md)): o Antidoom oficial levou o `thor_pt` de 54,3% a 73,2% de múltipla escolha com thinking em 4 a 6 min de treino, e a regra única escolheu o `thor_pt_antidoom_of` para a suíte de teste, que roda desde 01:40.

@@ -26,6 +26,24 @@ def paired_bootstrap(a: list[int], b: list[int], seed: int = 0) -> tuple[float, 
     return sum(d) / n, boots[int(0.025 * N_BOOT)], boots[int(0.975 * N_BOOT) - 1]
 
 
+def paired_bootstrap_mean(pairs: list[tuple[list[int], list[int]]], seed: int = 0) -> tuple[float, float, float]:
+    """Diferença da nota média entre duas avaliações e IC 95%: `pairs` tem um (a, b) por prova, com os acertos por item na mesma ordem.
+    Cada reamostra sorteia itens com reposição dentro de cada prova (independente entre provas) e tira a média das diferenças de acerto."""
+    import numpy as np
+
+    d = [np.asarray(a, dtype=np.float64) - np.asarray(b, dtype=np.float64) for a, b in pairs]
+    rng = np.random.default_rng(seed)
+    boots, chunk = [], 250
+    for start in range(0, N_BOOT, chunk):
+        m = min(chunk, N_BOOT - start)
+        acc = np.zeros(m)
+        for x in d:
+            acc += x[rng.integers(0, len(x), size=(m, len(x)), dtype=np.int32)].mean(axis=1)
+        boots.append(acc / len(d))
+    boots = np.sort(np.concatenate(boots))
+    return float(np.mean([x.mean() for x in d])), float(boots[int(0.025 * N_BOOT)]), float(boots[int(0.975 * N_BOOT) - 1])
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--a", required=True, help="nome:modo do candidato")

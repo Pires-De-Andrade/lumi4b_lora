@@ -12,7 +12,7 @@ import json
 import statistics
 from pathlib import Path
 
-from compare_runs import load, paired_bootstrap  # noqa: E402  (mesma pasta)
+from compare_runs import load, paired_bootstrap, paired_bootstrap_mean  # noqa: E402  (mesma pasta)
 
 NAMES = {"gsm8k_val": "GSM8K (validação)", "mcq_val": "Múltipla escolha (validação)", "gsm8k_test": "GSM8K-PT (teste)", "mmlu_prox_test": "MMLU-ProX PT",
          "enem": "ENEM", "bluex": "BLUEX", "oab": "OAB"}
@@ -33,6 +33,7 @@ def main() -> None:
     ap.add_argument("--root", default="runs/eval")
     ap.add_argument("--key", default="strict_ok", choices=["strict_ok", "flexible_ok"])
     ap.add_argument("--only-ids", default="", help="json com ids a considerar nas tarefas gsm8k_val (validação limpa)")
+    ap.add_argument("--mean", action="store_true", help="acrescenta a coluna da nota média das provas de --tasks (a Nota de raciocínio, com as cinco da suíte)")
     a = ap.parse_args()
     cols = [tuple(c.split("=", 1)) for c in a.col]
     labels = [c[0] for c in cols]
@@ -49,8 +50,9 @@ def main() -> None:
             if d is not None and keep is not None and t == "gsm8k_val":
                 d = {k: v for k, v in d.items() if k in keep}
             data[(lab, t)] = d
+    head = [NAMES.get(t, t) for t in tasks] + (["Nota média"] if a.mean else [])
     out = [f"# Comparação (nota = {a.key}; diferença contra **{a.ref}**, bootstrap pareado, IC 95%)\n",
-           "| Sistema | " + " | ".join(f"{NAMES.get(t, t)}" for t in tasks) + " |", "| --- | " + " | ".join("---" for _ in tasks) + " |"]
+           "| Sistema | " + " | ".join(head) + " |", "| --- | " + " | ".join("---" for _ in head) + " |"]
     for lab in labels:
         cells = []
         for t in tasks:
@@ -66,6 +68,20 @@ def main() -> None:
             diff, lo, hi = paired_bootstrap([int(d[i][a.key]) for i in ids], [int(r[i][a.key]) for i in ids])
             sig = " ▲" if lo > 0 else (" ▼" if hi < 0 else "")
             cells.append(f"{fmt(acc)} ({100 * diff:+.1f}; {100 * lo:+.1f} a {100 * hi:+.1f}){sig}".replace(".", ","))
+        if a.mean:
+            ds = [data[(lab, t)] for t in tasks]
+            rs = [data[(a.ref, t)] for t in tasks]
+            if any(d is None for d in ds):
+                cells.append("(pendente)")
+            else:
+                acc = sum(sum(int(d[i][a.key]) for i in d) / len(d) for d in ds) / len(ds)
+                if lab == a.ref or any(r is None or set(r) != set(d) for r, d in zip(rs, ds)):
+                    cells.append(f"{fmt(acc)}")
+                else:
+                    ids = [sorted(d) for d in ds]
+                    diff, lo, hi = paired_bootstrap_mean([([int(d[i][a.key]) for i in ii], [int(r[i][a.key]) for i in ii]) for d, r, ii in zip(ds, rs, ids)])
+                    sig = " ▲" if lo > 0 else (" ▼" if hi < 0 else "")
+                    cells.append(f"{fmt(acc)} ({100 * diff:+.1f}; {100 * lo:+.1f} a {100 * hi:+.1f}){sig}".replace(".", ","))
         out.append(f"| {lab} | " + " | ".join(cells) + " |")
     out.append("\n▲ ganho com IC acima de 0, ▼ perda com IC abaixo de 0, sem marca = empate estatístico. Entre parênteses: diferença em pontos; IC 95%.\n")
     out.append("## Forma da saída\n")

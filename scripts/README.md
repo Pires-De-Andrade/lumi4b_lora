@@ -43,7 +43,7 @@ Convenções: rode sempre com `source env.sh`; tarefas longas com `scripts/detac
 | `eval_merged.sh` | Avalia vários fundidos na validação | ativo |
 | `stop_eval_after_task.sh` | Encerra uma avaliação em curso depois de uma (prova, modo) | ativo |
 | `run_suite.sh`, `run_suite_models.sh` | Suíte de teste do PRD (GSM8K-PT, MMLU-ProX PT, ENEM, BLUEX, OAB) | ativo (só o Lumi tem resultado parcial) |
-| `compare_runs.py`, `report_compare.py` | Bootstrap pareado: diferença e IC 95% entre rodadas | ativo |
+| `compare_runs.py`, `report_compare.py` | Bootstrap pareado: diferença e IC 95% entre rodadas, por prova e (`report_compare.py --mean`, `paired_bootstrap_mean`) na nota média das provas | ativo |
 | `decompose_paired.py` | Decomposição pareada da diferença de acerto contra o Lumi por quadrante de fechamento do `</think>` (onde o modelo ganha e onde perde) | ativo |
 | `gen_estudos_resultados.py` | Regera `estudos/resultados_auto.md` de `runs/eval/*` | ativo |
 | `run_gsm8k.py`, `run_gsm8k_vllm.py` | GSM8K-PT do piloto (HF e vLLM) | histórico |
@@ -77,6 +77,7 @@ Fluxo de um ciclo (`run_grpo.sh`): fundir o adaptador → `grpo_rollout.py` (vLL
 | `run_noite12_chain.sh` | Fila (v12): SFTs de teste até o código da receita oficial ficar pronto; fase anti-laço na receita oficial no `thor_pt` (H59), no `gspo_thor` (H58), braço com o treinador oficial, SFTs restantes, `gspo1` (H57) e suíte de um candidato escolhido por regra | congelada em 09/11 19:40 e encerrada (substituída pela `run_noite13_chain.sh`) |
 | `run_noite13_chain.sh` | Fila (v13): RL `gspo_qwen_mix_short` (H60) primeiro, depois a fase anti-laço na receita oficial (`thor_pt`, `gspo_thor`, braço do treinador oficial), SFTs `selfdist_min` e `selfdist_300`, `gspo1` e a suíte de um candidato escolhido por regra | executada até a suíte de teste do `thor_pt_antidoom_of` (em andamento desde 01:40 de 10/11) |
 | `run_noite14_chain.sh` | Fila (v14): espera a `noite13` acabar e faz a sonda da segunda rodada do Antidoom (H64) e duas sementes do treino da primeira rodada (H65); não roda suíte de teste | **aguardando a suíte** |
+| `run_noite15_chain.sh` | Fila (v15): espera a `noite14` acabar e roda o Lumi original na 4090 em MMLU-ProX PT (sem thinking), ENEM, BLUEX e OAB (os dois modos) (H66); ao fim, duas tabelas de comparação com a nota média (contra o Lumi com e sem thinking) se a suíte do `thor_pt_antidoom_of` estiver completa; não avalia modelo nosso | **aguardando a `noite14`** |
 | `antidoom_oficial_train.py` | Braço de conferência: treina com o `FTPOTrainer` do repositório oficial (clonado em `../antidoom_oficial`) sobre os nossos eventos | pronto (testado na CPU com modelo minúsculo) |
 | `merge_on_base.py` | Funde um LoRA treinado sobre um modelo já fundido (qualquer alvo, inclusive `lm_head`) e confere chaves, formas e tensores alterados | pronto |
 | `pick_suite_candidate.py` | Escolhe o único modelo da suíte de teste pela regra escrita antes dos resultados (padrão: `gspo1`) | pronto |
