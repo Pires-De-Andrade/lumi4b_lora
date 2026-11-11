@@ -283,7 +283,8 @@ def make_generate(model, tok, color: bool = False):
         t0 = time.perf_counter()
         with torch.inference_mode():
             out = model.generate(**enc, streamer=TraceStreamer(in_trace), **kw)
-        torch.cuda.synchronize()
+        if model.device.type == "cuda":
+            torch.cuda.synchronize()
         seconds = time.perf_counter() - t0
         ids = out[0, enc["input_ids"].shape[1]:].tolist()
         cut, finished = cut_at_eos(ids)

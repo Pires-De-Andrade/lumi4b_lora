@@ -11,7 +11,7 @@ Convenções: rode sempre com `source env.sh`; tarefas longas com `scripts/detac
 | `detach.sh` | Roda um comando desacoplado em tmux, com `runs/jobs/<nome>.log` e `.exit`; `--gpu` espera a GPU livre | ativo |
 | `build_kernels.sh` | Compila `causal-conv1d` e `mamba-ssm` (nvcc do conda-forge, sem sudo); usa `patches/mamba-ssm-sm89-cxx20.patch` | ativo |
 | `install_vllm.sh` | Cria o `.venv-vllm` | ativo |
-| `chat.py` | Conversa interativa com o Lumi | ativo |
+| `chat.py` | Conversa interativa com o Lumi ou, com `--model`, com um modelo fundido (ex.: `runs/merged/thor_pt_antidoom_of`, o T6-Lumi); `--device cpu` roda sem GPU (float32, ~5 tokens/s com 8 threads) | ativo |
 
 ## Dados: construção, descontaminação e validação
 
@@ -63,6 +63,7 @@ Fluxo de um ciclo (`run_grpo.sh`): fundir o adaptador → `grpo_rollout.py` (vLL
 | `grpo_status.py` | Resumo por ciclo (recompensa, truncadas, entropia, corte, avaliações) | ativo |
 | `make_grpo_prompts.py` | Prompts antigos (letra majoritária do R1) | histórico (`gspo1`, `gspo_thor`) |
 | `make_questions_rl_prompts.py`, `audit_gold_questions.py` | Prompts com gabarito oficial (`data/grpo_prompts_gold.jsonl`) e auditoria estrutural | ativo |
+| `make_rl_pool_t6.py` | Pool de RL a partir do T6-Lumi (`data/grpo_prompts_t6.jsonl`): o pool com gabarito sem os itens que o SFT do T6-Lumi já viu (8-gramas) e conferido contra as provas novas | ativo |
 | `run_grpo_kl.sh`, `grpo_train_kl.py` | Variante com KL ao SFT (`grpo4`) | histórico |
 | `run_grpo_entropy.sh` | Entropia por ciclo de um RL já rodado | histórico |
 | `bench_rollout.py`, `run_bench_rollout.sh` | Benchmark de velocidade da geração (resultado: nada adotado, estudos/08) | histórico |
