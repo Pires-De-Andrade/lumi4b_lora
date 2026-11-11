@@ -58,6 +58,7 @@ T6-Lumi was trained in two stages with parameter-efficient fine-tuning (LoRA), b
 - **Difference from the parent**: 72 of the 263 weight tensors changed (the `in_proj` of the 21 Mamba-2 blocks, `up_proj` and `down_proj` of the 17 MLP blocks, the 16 attention projections and `lm_head`). Everything else is identical.
 - **Language(s)**: Portuguese (reasoning and answers). English is inherited from Lumi and was not evaluated for T6-Lumi.
 - **Tokenizer and chat template**: Unchanged from Lumi-4B.
+- **Developed by**: researchers at CEIA (Centro de Excelência em Inteligência Artificial) and students of the BIA (Bacharelado em Inteligência Artificial) at the Federal University of Goiás (UFG).
 - **Contact**: [@gustavobarrosss](https://github.com/gustavobarrosss) and [@Pires-De-Andrade](https://github.com/Pires-De-Andrade) (GitHub). <!-- DECISION: confirm contact and project page. -->
 
 ## Model Performance
@@ -321,6 +322,8 @@ We thank the NLP team at CEIA/UFG for Lumi-4B, NVIDIA for Nemotron 3 Nano 4B (th
 <!-- DECISION: add confirmed institutional support and computing-resource acknowledgements. -->
 
 ## Authors
+
+T6-Lumi was developed by researchers at CEIA (Centro de Excelência em Inteligência Artificial) and students of the BIA (Bacharelado em Inteligência Artificial) at the Federal University of Goiás (UFG).
 
 [@gustavobarrosss](https://github.com/gustavobarrosss) · [@Pires-De-Andrade](https://github.com/Pires-De-Andrade)
 

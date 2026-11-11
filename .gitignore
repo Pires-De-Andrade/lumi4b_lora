@@ -16,16 +16,6 @@ temp/
 # arquivos locais, não versionados
 comparacao.md
 /STATUS.md
-
-# pacotes da Thor: só o plano e os scripts vão para o Git
-/handoff/*/data/
-/handoff/*/out/
-/handoff/*/.venv-gen/
-/handoff/*/*.tar.gz
-/handoff/*.tar.gz
-/handoff/*.tar
-# pacote 4: não versionado
-/handoff/thor4/
-/handoff/thor4_pacote.sha256
-# pacote 6 (Spark): a diferença dos pesos não vai para o Git
-/handoff/spark1/t6_delta.bin
+/CLAUDE.md
+# depende de handoff/thor4/, que também não é versionado
+/tests/test_thor4_filter.py

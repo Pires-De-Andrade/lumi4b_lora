@@ -45,7 +45,6 @@ Convenções: rode sempre com `source env.sh`; tarefas longas com `scripts/detac
 | `run_suite.sh`, `run_suite_models.sh` | Suíte de teste do PRD (GSM8K-PT, MMLU-ProX PT, ENEM, BLUEX, OAB) | ativo (só o Lumi tem resultado parcial) |
 | `compare_runs.py`, `report_compare.py` | Bootstrap pareado: diferença e IC 95% entre rodadas, por prova e (`report_compare.py --mean`, `paired_bootstrap_mean`; `--subset-ids` restringe uma prova a uma lista de ids) na nota média das provas | ativo |
 | `build_novas_provas.py` | Monta as provas novas (`oab_novas`, `enem_2024`, `mmlu_pt_*`) em `data/novas_provas/`: conversão, descontaminação por 8-gramas (≥ 10% do item) contra a suíte, a validação e os dados de treino, subconjunto estrito, amostra e `report.json`; lógica em `src/lumi_ft/eval/novas.py` | ativo |
-| `import_thor_eval.py` | Importa a devolução do pacote `handoff/thor5` (Lumi e Nemotron na Thor, para `runs/eval/base_thor` e `runs/eval/nemotron4b_thor`) ou, com `--origem spark`, a do `handoff/spark1` (toda pasta `*_spark`); sem sobrescrever, e só o que está completo no `summary.json` (aceita entrega parcial) | ativo |
 | `interpolate_models.py` | Interpolação de pesos entre dois modelos com as mesmas chaves (WiSE-FT): `alpha` de A + (1 − `alpha`) de B; `--b lumi` usa o Lumi original (H71, adiada) | ativo |
 | `decompose_paired.py` | Decomposição pareada da diferença de acerto contra o Lumi por quadrante de fechamento do `</think>` (onde o modelo ganha e onde perde) | ativo |
 | `gen_estudos_resultados.py` | Regera `estudos/resultados_auto.md` de `runs/eval/*` | ativo |
@@ -68,6 +67,10 @@ Fluxo de um ciclo (`run_grpo.sh`): fundir o adaptador → `grpo_rollout.py` (vLL
 | `select_hard_prompts.py` | Dos rollouts do T6-Lumi, os prompts que dão sinal (1 a 7 acertos de 8): `data/grpo_prompts_t6_hard.jsonl` | ativo |
 | `rl_t6_gate.py` | Portão da H75: a validação do `rl_t6` passa para a suíte de teste (múltipla escolha ≥ 75,2%, fecha ≥ 90%, português ≥ 90%) | ativo |
 | `run_rl_t6_chain.sh` | Cadeia do RL a partir do T6-Lumi (H75): espera a `noite18`, seleciona prompts, RL de 4 iterações, validação, portão e, se passar, suíte e provas novas | ativo |
+| `reordenar_h75_antes_h69.sh` | Vigia que encerra a fila `noite18` quando ela começa a H69, para a cadeia do RL (H75) rodar antes (sem editar o script da fila) | ativo |
+| `reordenar_h75_antes_h68.sh` | Vigia que encerra a `fila_final2` quando ela começa a H68 (primeira avaliação, `base_t06`), escreve a tabela da H69 (`runs/jobs/h69_comparacao.md`), roda a cadeia do RL (H75) e retoma o `run_final_chain.sh` (que pula o que está completo); uma sessão só, sem espera entre sessões | ativo |
+| `run_noite18_resto.sh` | Retomada da fila depois do RL (**travou**: o `tmux has-session -t noite18` casa por prefixo com a própria `noite18b`; substituída pelo `run_final_chain.sh`) | histórico |
+| `run_final_chain.sh` | Fila final da 4090 (11/11): H69 e H68 direto, tabelas em segundo plano (copia o cabeçalho de `run_noite18_chain.sh`) | ativo |
 | `run_grpo_kl.sh`, `grpo_train_kl.py` | Variante com KL ao SFT (`grpo4`) | histórico |
 | `run_grpo_entropy.sh` | Entropia por ciclo de um RL já rodado | histórico |
 | `bench_rollout.py`, `run_bench_rollout.sh` | Benchmark de velocidade da geração (resultado: nada adotado, estudos/08) | histórico |
@@ -87,7 +90,6 @@ Fluxo de um ciclo (`run_grpo.sh`): fundir o adaptador → `grpo_rollout.py` (vLL
 | `run_noite14_chain.sh` | Fila (v14): espera a `noite13` acabar e faz a sonda da segunda rodada do Antidoom (H64) e duas sementes do treino da primeira rodada (H65); não roda suíte de teste | **terminou em 10/11 05:53** |
 | `run_noite15_chain.sh` | Fila (v15): espera a `noite14` acabar e roda o Lumi original na 4090 em MMLU-ProX PT (sem thinking), ENEM, BLUEX e OAB (os dois modos) (H66); ao fim, duas tabelas de comparação com a nota média (contra o Lumi com e sem thinking) se a suíte do `thor_pt_antidoom_of` estiver completa; não avalia modelo nosso | **terminou em 10/11 07:29** |
 | `run_noite18_chain.sh` | Fila (v18): o plano de provas novas do usuário dividido com a Thor (fumaça, T6-Lumi nas provas novas, Lumi na 4090, 8.192 tokens (H67), outras execuções da receita (H69), amostragem T 0,6 (H68) e o Nemotron que a Thor não devolver); não troca o candidato | **na fila** |
-| `report_spark1.sh` | Tabelas do pacote da Spark (`runs/jobs/spark1_comparacao.md`): T6-Lumi e Lumi na mesma máquina nas provas novas, calibração contra a Thor, subconjunto estrito e decomposição por quadrante | ativo |
 | `make_card_figures.py` | Gráficos do card do T6-Lumi no Hugging Face (`hf/t6-lumi/fig*.svg`): barras por prova, diferença pareada com IC, fechamento do `</think>`, decomposição por quadrante e efeito de cada etapa. Os números vêm dos registros (cada bloco cita a seção); `tests/test_card_figures.py` confere a consistência |
 | `make_card_figures_novas.py` | Gráficos 6 a 9 do card do T6-Lumi (provas novas): calcula acerto, diferença pareada com IC, fechamento e decomposição a partir de `runs/eval` (nada digitado à mão) | ativo |
 | `antidoom_oficial_train.py` | Braço de conferência: treina com o `FTPOTrainer` do repositório oficial (clonado em `../antidoom_oficial`) sobre os nossos eventos | pronto (testado na CPU com modelo minúsculo) |
@@ -109,7 +111,7 @@ Fluxo de um ciclo (`run_grpo.sh`): fundir o adaptador → `grpo_rollout.py` (vLL
 | `make_thor_prompts.py` | 1: matemática, Qwen3-30B |
 | `make_thor2_prompts.py` | 2: Nemotron 30B (matemática em português e ciência em inglês) |
 | `make_thor3_prompts.py` | 3: múltipla escolha de outros domínios, mais a tradução |
-| `make_thor4_prompts.py` | 4: múltipla escolha em português com o Qwen3-30B-A3B-Thinking (pacote **não versionado**, ver [handoff/README.md](../handoff/README.md)) |
+| `make_thor4_prompts.py` | 4: múltipla escolha em português com o Qwen3-30B-A3B-Thinking (pacote **não versionado**) |
 
 ## Fase 0: medições e equivalência (históricos)
 
