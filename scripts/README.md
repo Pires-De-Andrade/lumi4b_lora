@@ -37,7 +37,7 @@ Convenções: rode sempre com `source env.sh`; tarefas longas com `scripts/detac
 | --- | --- | --- |
 | `train_sft.py` | Treina o adaptador LoRA/DoRA; retomável | ativo |
 | `run_experiment.sh` | Treina, funde e avalia, em sequência | ativo |
-| `merge_adapter.py` | Funde um adaptador no Lumi em BF16 (`--scale` muda o efeito) | ativo |
+| `merge_adapter.py` | Funde um adaptador no Lumi em BF16 (`--scale` muda o efeito); com `--base` (ou a variável `GRPO_BASE`) funde sobre outro modelo fundido, como o T6-Lumi, sem a conferência contra o Lumi | ativo |
 | `merge_adapter_layers.py` | Funde só parte do adaptador (triagem por camadas, E9) | histórico |
 | `eval_vllm.py` | Avalia um modelo no vLLM por (prova, modo); retomável; `--tasks validation|suite`; gulosa por padrão, `--temperature`, `--top-p` e `--sample-seed` só para análises de sensibilidade (H68) | ativo |
 | `eval_merged.sh` | Avalia vários fundidos na validação | ativo |
@@ -59,11 +59,15 @@ Fluxo de um ciclo (`run_grpo.sh`): fundir o adaptador → `grpo_rollout.py` (vLL
 | Arquivo | Para quê | Estado |
 | --- | --- | --- |
 | `run_grpo.sh` | Laço do RL, retomável; é o que as rodadas atuais usam | ativo |
-| `grpo_rollout.py`, `grpo_train.py`, `grpo_guard.py` | Geração e recompensa, atualização, guarda de truncadas | ativo |
+| `grpo_rollout.py`, `grpo_train.py`, `grpo_guard.py` | Geração e recompensa, atualização (com `GRPO_BASE` treina sobre um modelo fundido em vez do Lumi), guarda de truncadas | ativo |
 | `grpo_status.py` | Resumo por ciclo (recompensa, truncadas, entropia, corte, avaliações) | ativo |
 | `make_grpo_prompts.py` | Prompts antigos (letra majoritária do R1) | histórico (`gspo1`, `gspo_thor`) |
 | `make_questions_rl_prompts.py`, `audit_gold_questions.py` | Prompts com gabarito oficial (`data/grpo_prompts_gold.jsonl`) e auditoria estrutural | ativo |
 | `make_rl_pool_t6.py` | Pool de RL a partir do T6-Lumi (`data/grpo_prompts_t6.jsonl`): o pool com gabarito sem os itens que o SFT do T6-Lumi já viu (8-gramas) e conferido contra as provas novas | ativo |
+| `make_blank_adapter.py` | Adaptador LoRA em branco (B = 0, r 16, alpha 32, os 71 módulos) sobre um modelo fundido; ponto de partida do RL a partir do T6-Lumi (a fusão devolve a base bit a bit) | ativo |
+| `select_hard_prompts.py` | Dos rollouts do T6-Lumi, os prompts que dão sinal (1 a 7 acertos de 8): `data/grpo_prompts_t6_hard.jsonl` | ativo |
+| `rl_t6_gate.py` | Portão da H75: a validação do `rl_t6` passa para a suíte de teste (múltipla escolha ≥ 75,2%, fecha ≥ 90%, português ≥ 90%) | ativo |
+| `run_rl_t6_chain.sh` | Cadeia do RL a partir do T6-Lumi (H75): espera a `noite18`, seleciona prompts, RL de 4 iterações, validação, portão e, se passar, suíte e provas novas | ativo |
 | `run_grpo_kl.sh`, `grpo_train_kl.py` | Variante com KL ao SFT (`grpo4`) | histórico |
 | `run_grpo_entropy.sh` | Entropia por ciclo de um RL já rodado | histórico |
 | `bench_rollout.py`, `run_bench_rollout.sh` | Benchmark de velocidade da geração (resultado: nada adotado, estudos/08) | histórico |

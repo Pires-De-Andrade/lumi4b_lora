@@ -91,7 +91,13 @@ def main() -> int:
     from peft import PeftModel
 
     torch.manual_seed(a.seed)
-    model = load_model("native")
+    base = os.environ.get("GRPO_BASE")  # pasta de um modelo fundido (ex.: o T6-Lumi) como base do adaptador; sem isso, o Lumi original
+    if base:
+        from transformers import AutoModelForCausalLM
+
+        model = AutoModelForCausalLM.from_pretrained(base, dtype=torch.bfloat16, trust_remote_code=False, device_map={"": "cuda"})
+    else:
+        model = load_model("native")
     model.config.use_cache = False
     if a.ckpt == "full":  # só age no modo train: a passada das log-probabilidades antigas (eval, sem gradiente) não muda
         model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})

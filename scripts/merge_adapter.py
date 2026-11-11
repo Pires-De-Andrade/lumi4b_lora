@@ -9,6 +9,7 @@ Uso: scripts/detach.sh merge-viab PYTHONPATH=src python scripts/merge_adapter.py
 import argparse
 import glob
 import json
+import os
 import re
 import shutil
 import sys
@@ -42,13 +43,21 @@ def main() -> int:
     ap.add_argument("--adapter", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--fast", action="store_true", help="não confere chaves e tensores (para as iterações do GRPO; a primeira fusão confere)")
+    ap.add_argument("--base", default=os.environ.get("GRPO_BASE", ""), help="pasta de um modelo fundido (ex.: o T6-Lumi) como base do adaptador (padrão: GRPO_BASE; "
+                    "vazio = o Lumi original). Com base própria não há conferência contra o Lumi (a fusão é sempre rápida)")
     ap.add_argument("--scale", type=float, default=1.0, help="multiplica o efeito do adaptador LoRA antes de fundir (1 = como treinado)")
     a = ap.parse_args()
     out = Path(a.out)
     cfg = json.loads((Path(a.adapter) / "adapter_config.json").read_text())
     if cfg.get("use_dora"):
         peft_patch.apply()  # linhas zeradas da in_proj (peft_patch.py)
-    model = load_model("native", device="cpu")
+    if a.base:
+        from transformers import AutoModelForCausalLM
+
+        model = AutoModelForCausalLM.from_pretrained(a.base, dtype=torch.bfloat16, trust_remote_code=False, device_map={"": "cpu"})
+        a.fast = True
+    else:
+        model = load_model("native", device="cpu")
     peft_model = PeftModel.from_pretrained(model, a.adapter)
     if a.scale != 1.0:
         assert not cfg.get("use_dora"), "--scale só vale para LoRA"
@@ -57,12 +66,12 @@ def main() -> int:
     if out.exists():
         shutil.rmtree(out)
     merged.save_pretrained(out, safe_serialization=True)
-    orig_dir = snapshot_download(MODEL_ID, revision=REVISION, local_files_only=True)
+    orig_dir = a.base or snapshot_download(MODEL_ID, revision=REVISION, local_files_only=True)
     for f in COPY:
         if (Path(orig_dir) / f).exists():
             shutil.copy(Path(orig_dir) / f, out / f)  # sobrescreve o config.json salvo pela nativa
     if a.fast:
-        (out / "merge_report.json").write_text(json.dumps({"adapter": a.adapter, "scale": a.scale, "fast": True, "out": str(out)}, indent=1))
+        (out / "merge_report.json").write_text(json.dumps({"adapter": a.adapter, "scale": a.scale, "fast": True, "base": a.base or MODEL_ID, "out": str(out)}, indent=1))
         print("EXIT_OK (rápido: sem conferência)")
         return 0
     o, s = header(orig_dir), header(str(out))
