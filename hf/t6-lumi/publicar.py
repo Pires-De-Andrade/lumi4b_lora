@@ -26,7 +26,8 @@ WEIGHTS_SHA256 = "1ea6bea57a56a67ebb70c1702fa0ae4f7dbde6967830c5d3961af3db43e944
 FROM_LUMI = ["config.json", "generation_config.json", "tokenizer.json", "tokenizer_config.json", "chat_template.jinja", "configuration_nemotron_h.py",
              "modeling_nemotron_h.py", "nano_v3_reasoning_parser.py", "__init__.py"]
 CARD = "README.md"
-FIGURES = ["fig1_benchmarks.svg", "fig2_paired_difference.svg", "fig3_closure.svg", "fig4_decomposition.svg", "fig5_recipe.svg"]
+FIGURES = ["fig1_benchmarks.svg", "fig2_paired_difference.svg", "fig3_closure.svg", "fig4_decomposition.svg", "fig5_recipe.svg",
+           "fig6_new_exams.svg", "fig7_new_exams_paired_difference.svg", "fig8_new_exams_closure.svg", "fig9_new_exams_decomposition.svg"]
 ALLOWED = {"model.safetensors", CARD, *FROM_LUMI, *FIGURES}
 PENDING = re.compile(r"DECISION|TODO")
 

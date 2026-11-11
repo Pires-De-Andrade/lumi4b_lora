@@ -37,13 +37,14 @@ T6-Lumi was trained in two stages with parameter-efficient fine-tuning (LoRA), b
 > [!NOTE]
 > **Use T6-Lumi with thinking enabled.** The Lumi-4B card asks to keep thinking disabled; T6-Lumi is the opposite. It was not trained or evaluated as a non-thinking model, so for non-thinking use [Lumi-4B](https://huggingface.co/ceia-br/lumi-4b). This release has no RL, RLVR, tool-use or model-identity training.
 >
-> **The measured gain comes from finishing the reasoning inside a bounded budget, not from better per-item reasoning.** Where Lumi and T6-Lumi both finish, T6-Lumi is 0.3 to 2.7 percentage points less accurate per item. See [How to read these results](#how-to-read-these-results).
+> **The measured gain comes from finishing the reasoning inside a bounded budget, not from better per-item reasoning.** On the five test sets, where Lumi and T6-Lumi both finish, T6-Lumi is 0.3 to 2.7 percentage points less accurate per item; on the new exams that difference goes both ways. See [How to read these results](#how-to-read-these-results) and [New exams](#new-exams).
 
 ## Highlights
 
 * **Reasoning in Portuguese:** 97.3% to 100% of the reasoning traces on the five test sets are in Portuguese (Lumi: English).
 * **Finishes its reasoning:** closes `</think>` within 4,096 new tokens in 82.6% to 99.8% of the generations, against 39.2% to 96.8% for Lumi.
 * **Reasoning score of 69.9%** against 63.2% (Lumi, thinking) and 65.5% (Lumi, non-thinking): **+6.8 pp** (95% CI +5.9 to +7.6) and **+4.4 pp** (95% CI +3.4 to +5.4).
+* **Holds on new exams:** on five exams not used for selection (OAB 2018–2025, ENEM 2024 and three MMLU-PT slices), the mean is 59.8% against 49.8% (Lumi, thinking) and 54.2% (Lumi, non-thinking): **+10.0 pp** (95% CI +8.3 to +11.7) and **+5.6 pp** (95% CI +3.9 to +7.3), again because T6-Lumi finishes its reasoning. See [New exams](#new-exams).
 * **Cheap to train:** an 18-minute LoRA SFT plus a 6-minute anti-looping stage (and 1.7 h to mine the loops) on one 24 GB GPU.
 
 # Release History
@@ -111,7 +112,62 @@ The reasoning score is higher, and the 95% interval excludes zero for the score 
 3. **The advantage depends on the 4,096-token budget.** A larger budget lets Lumi close more of the questions it truncates here, which would shrink the gap. We have not measured this yet.
 4. **On the OAB Exams, thinking only ties the non-thinking model**: 44.0% against 43.5% (+0.5 pp, 95% CI −1.8 to +2.6), at a much higher cost in tokens.
 5. **Thinking costs tokens.** The median generation has 358 to 1,597 new tokens for T6-Lumi with thinking, against 149 to 216 for non-thinking Lumi.
-6. **Selection and variance.** T6-Lumi was chosen by a rule fixed before the test runs, from the validation results of several candidates, and ran on the test sets once. The intervals above cover the sampling of items, not the variance of training or of the machine (the same Lumi differs by up to 1.5 pp between two machines). The validation gain on GSM8K-PT, +4.1 pp over Lumi, shrank to +1.6 pp on the test set.
+6. **Selection and variance.** T6-Lumi was chosen by a rule fixed before the test runs, from the validation results of several candidates, and ran on the test sets once. The intervals above cover the sampling of items, not the variance of training or of the machine (the same Lumi differs by up to 1.5 pp between two machines on the test sets above, and by up to 2.3 pp on the new exams). The validation gain on GSM8K-PT, +4.1 pp over Lumi, shrank to +1.6 pp on the test set.
+
+### New exams
+
+T6-Lumi was chosen by a rule fixed before the test runs, from the validation results of several candidates. To see whether the result is specific to the five test sets above, T6-Lumi and Lumi were also run on five exams that no model of this project saw during selection. The protocol is the one above (zero-shot, greedy decoding, at most 4,096 new tokens, strict accuracy), and T6-Lumi and Lumi ran on the same RTX 4090 with vLLM 0.33.0.
+
+- **OAB 2018–2025** (1,093 items): [`russ7/oab_exams_2011_2025_combined`](https://huggingface.co/datasets/russ7/oab_exams_2011_2025_combined), editions from 2018-01 to 2025-01 (the editions of the OAB Exams suite above are left out).
+- **ENEM 2024** (179 items): [`maritaca-ai/enem`](https://huggingface.co/datasets/maritaca-ai/enem), 2024 exam, with each figure replaced by its description and the one annulled question dropped.
+- **MMLU-PT exatas, ENADE and concursos** (1,000 items each): three slices of [`Portuguese-MMLU/mmlu-pt-knowledge-annotated`](https://huggingface.co/datasets/Portuguese-MMLU/mmlu-pt-knowledge-annotated): exact sciences (OBI, POSCOMP, IME, AFA), ENADE, and public-service exams (BNDES, BACEN, CNU), drawn at random (seed 0).
+
+The exams are used for evaluation only and are not redistributed here. Items that share 10% or more of their 8-grams (and at least 3) with the training data, the validation sets or the five test sets above were removed before the runs. This criterion is looser than "any shared 8-gram" on purpose: that one would have removed 43% of the new OAB items and 54% of ENADE because of exam boilerplate and statute text, not repeated questions. The items with no shared 8-gram at all are reported separately below.
+
+![Accuracy on the five new exams](./fig6_new_exams.svg)
+
+| Exam | Items | Lumi (no thinking) | Lumi (thinking) | **T6-Lumi (thinking)** | Δ vs Lumi (thinking) | Δ vs Lumi (no thinking) |
+| --- | ---: | ---: | ---: | ---: | :---: | :---: |
+| OAB 2018–2025 | 1,093 | 45.7 | 21.6 | **43.6** | +22.0 [+18.8, +25.3] | −2.1 [−5.4, +1.3] |
+| ENEM 2024 | 179 | 78.2 | 79.3 | **83.2** | +3.9 [−2.2, +9.5] | +5.0 [−0.6, +10.6] |
+| MMLU-PT exatas | 1,000 | 38.4 | 45.4 | **50.9** | +5.5 [+2.8, +8.2] | +12.5 [+9.1, +15.9] |
+| MMLU-PT ENADE | 1,000 | 61.7 | 55.7 | **64.9** | +9.2 [+6.1, +12.3] | +3.2 [+0.1, +6.3] |
+| MMLU-PT concursos | 1,000 | 46.8 | 47.1 | **56.4** | +9.3 [+6.5, +12.1] | +9.6 [+6.5, +12.7] |
+| **Mean of the five** | – | 54.2 | 49.8 | **59.8** | +10.0 [+8.3, +11.7] | +5.6 [+3.9, +7.3] |
+
+![Paired difference between T6-Lumi and Lumi on the new exams, with 95% confidence intervals](./fig7_new_exams_paired_difference.svg)
+
+**How to read the new exams**
+
+1. **The advantage holds on exams that were not used for selection, at the 4,096-token budget.** The mean over the five exams is 59.8% for T6-Lumi, against 49.8% for Lumi with thinking (**+10.0 pp**, 95% CI +8.3 to +11.7) and 54.2% for Lumi without thinking (**+5.6 pp**, 95% CI +3.9 to +7.3). Against Lumi with thinking, four of the five exams have an interval above zero; ENEM 2024 (179 items) does not separate. Against Lumi without thinking, MMLU-PT exatas and concursos clearly favor T6-Lumi, ENADE barely does (lower limit +0.1), and the OAB (−2.1) and ENEM 2024 are ties. As on the suite, T6-Lumi with thinking only ties non-thinking Lumi on the OAB.
+2. **The gain is still finishing the reasoning.** On the OAB, T6-Lumi closes `</think>` in 89.5% of the generations against 37.2% for Lumi, and the 54.7% of the items that only T6-Lumi closes contribute +24.5 pp of the +22.0 pp difference. Where both models close, the difference is small and goes both ways: T6-Lumi is below Lumi on the OAB (55.0% against 58.7%) and on ENEM 2024, and at or above it on the three MMLU-PT slices. Items that only Lumi closes cost T6-Lumi between 1.1 and 4.1 pp; on MMLU-PT exatas, 35.9% of the T6-Lumi generations still do not close inside 4,096 tokens.
+
+   ![Share of generations that close the reasoning, new exams](./fig8_new_exams_closure.svg)
+
+   ![Decomposition of the difference by which model closes, new exams](./fig9_new_exams_decomposition.svg)
+
+| Exam | Closes `</think>`: T6-Lumi / Lumi | T6-Lumi reasons in Portuguese | Median new tokens: T6-Lumi / Lumi | Accuracy where both close: T6-Lumi / Lumi | Items closed only by T6-Lumi / only by Lumi |
+| --- | :---: | :---: | :---: | :---: | :---: |
+| OAB 2018–2025 | 89.5% / 37.2% | 100.0% | 1,641 / 4,096 | 55.0% / 58.7% | 54.7% / 2.5% |
+| ENEM 2024 | 93.3% / 87.2% | 100.0% | 675 / 555 | 90.1% / 92.1% | 8.4% / 2.2% |
+| MMLU-PT exatas | 64.1% / 56.6% | 93.1% | 2,428 / 2,710 | 83.3% / 82.9% | 14.3% / 6.8% |
+| MMLU-PT ENADE | 87.1% / 73.8% | 99.9% | 1,266 / 1,196 | 77.1% / 75.4% | 18.0% / 4.7% |
+| MMLU-PT concursos | 87.9% / 71.7% | 96.2% | 941 / 848 | 70.2% / 66.4% | 19.4% / 3.2% |
+
+3. **Items with no shared 8-gram.** Restricted to the 656, 176, 968, 535 and 934 items of the five exams that share no 8-gram with the training or evaluation data, the mean difference is +9.2 pp (95% CI +7.5 to +11.1) against Lumi with thinking and +6.6 pp (+4.7 to +8.4) against Lumi without thinking.
+4. **Expectations written before the runs.** For the OAB we expected +15 to +25 pp against Lumi with thinking and −2 to +3 against Lumi without it; for ENEM 2024, 0 to +8 against both; for MMLU-PT, positive and smaller than on the OAB against Lumi with thinking (no expectation against Lumi without it). Everything fell inside, except the OAB against Lumi without thinking, whose point estimate (−2.1) is 0.1 pp below the range (the interval includes zero, so it reads as a tie).
+5. **Machines.** Nemotron 3 Nano 4B was run with the same protocol on a **Jetson Thor**, not on the RTX 4090, so its rows below are not a same-machine comparison. The same Lumi scores differently on the two machines: up to 2.3 pp per exam and mode (OAB with thinking: 21.6% on the RTX 4090, 19.3% on the Jetson Thor), and 0.6 and 0.9 pp on the five-exam mean (with and without thinking). Differences between a model on one machine and another on the other are therefore only indicative, and no confidence interval is given for them.
+
+| Exam | Nemotron (no thinking) | Nemotron (thinking) | T6-Lumi minus Nemotron (thinking) | T6-Lumi minus Nemotron (no thinking) |
+| --- | ---: | ---: | :---: | :---: |
+| OAB 2018–2025 | 43.1 | 34.2 | +9.4 | +0.5 |
+| ENEM 2024 | 66.5 | 81.6 | +1.7 | +16.8 |
+| MMLU-PT exatas | 37.8 | 57.8 | −6.9 | +13.1 |
+| MMLU-PT ENADE | 51.0 | 60.3 | +4.6 | +13.9 |
+| MMLU-PT concursos | 44.5 | 48.2 | +8.2 | +11.9 |
+| **Mean of the five** | 48.6 | 56.4 | +3.4 | +11.2 |
+
+   On the five-exam mean, T6-Lumi is 3.4 pp above Nemotron with thinking and 11.2 pp above it without thinking (indicative). Nemotron is above T6-Lumi on MMLU-PT exatas (57.8% against 50.9%), a gap larger than the machine effect seen with Lumi. Nemotron reasons in English (0.1% to 1.3% of its traces are in Portuguese; T6-Lumi: 93.1% to 100%).
 
 ### How it was built
 
@@ -197,7 +253,7 @@ print(answer.strip() if closed else "(the reasoning did not finish inside max_to
 
 ### Unvalidated use cases
 
-- **Sampling**: only greedy decoding was evaluated. The base model's card recommends temperature 1.0 and top-p 0.95 for reasoning; we have not tested them on T6-Lumi.
+- **Sampling**: only greedy decoding was evaluated. The Lumi-4B card gives no sampling recommendation yet; the card of its parent model, NVIDIA Nemotron 3 Nano 4B, recommends temperature 1.0 and top-p 0.95 for reasoning (0.6 and 0.95 for tool calling). We have not tested any sampling setting on T6-Lumi.
 - **Token budgets other than 4,096**, and long inputs. The base architecture supports a much longer context; we did not validate it.
 - **Non-thinking mode**: not a supported mode (use Lumi-4B). In the few measurements we have, T6-Lumi without thinking is close to Lumi or slightly below it (GSM8K-PT 84.5% against 85.3%; validation multiple choice 62.3% against 63.9%).
 - **English, other languages, tool use, system prompts and multi-turn chat**: not evaluated.
@@ -236,7 +292,7 @@ The SFT data and the anti-looping prompts were checked against the validation an
 
 ## Ongoing evaluation
 
-Not yet available, and not part of the numbers above: (i) test sets that no model of this project saw during selection (OAB 2018–2025 editions outside the suite above, ENEM 2024 and three slices of the CEIA MMLU-PT: exact sciences, ENADE and public-service exams); (ii) the same comparison with an 8,192-token budget and with sampling (temperature 0.6); (iii) the other three runs of the recipe on the test sets; (iv) human review of the Portuguese reasoning traces. Results will be added to this card, favorable or not.
+Not yet available, and not part of the numbers above: (i) the same comparison with an 8,192-token budget and with sampling (temperature 0.6); (ii) the other three runs of the recipe on the test sets and on the new exams; (iii) human review of the Portuguese reasoning traces. Results will be added to this card, favorable or not.
 
 ## Risks and Limitations
 
